@@ -118,7 +118,26 @@ describe("serenity SSRF fetch path", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("uses plain fetch for public-looking HTTPS when endpointTrust is private", async () => {
+  it("pins private-trust HTTPS hostnames and rejects metadata rebinding", async () => {
+    const fetchMock = vi.fn(async () => new Response(null, { status: 204 }));
+    const result = await probeSerenity(
+      {
+        endpoint: "https://serenity.example.test/mcp",
+        token: TOKEN,
+        endpointTrust: "private",
+      },
+      undefined,
+      {
+        fetch: fetchMock,
+        resolveHostname: async () => [{ address: "169.254.169.254", family: 4 as const }],
+      },
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toMatch(/blocked address/i);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("pins private-trust HTTPS hostnames to private LAN answers", async () => {
     let resolved = false;
     const fetchMock = vi.fn(async () => {
       throw new Error("private-resolving-dns-fetch-reached");
@@ -138,10 +157,10 @@ describe("serenity SSRF fetch path", () => {
         },
       },
     );
-    expect(resolved).toBe(false);
+    expect(resolved).toBe(true);
     expect(fetchMock).toHaveBeenCalled();
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error).toMatch(/private-resolving-dns-fetch-reached/);
+    if (!result.ok) expect(result.error).toMatch(/private-resolving-dns-fetch-reached|Could not reach/);
   });
 
   it("classifies private-resolving HTTPS hostnames as private trust", async () => {
@@ -156,7 +175,7 @@ describe("serenity SSRF fetch path", () => {
       ]),
     ).resolves.toBe("public");
   });
-  it("uses plain fetch for private DNS HTTPS without rejecting private addresses", async () => {
+  it("pins private DNS HTTPS and allows private LAN answers", async () => {
     let resolved = false;
     const fetchMock = vi.fn(async () => {
       throw new Error("private-dns-fetch-reached");
@@ -172,10 +191,10 @@ describe("serenity SSRF fetch path", () => {
         },
       },
     );
-    expect(resolved).toBe(false);
+    expect(resolved).toBe(true);
     expect(fetchMock).toHaveBeenCalled();
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error).toMatch(/private-dns-fetch-reached/);
+    if (!result.ok) expect(result.error).toMatch(/private-dns-fetch-reached|Could not reach/);
   });
 
   it("uses plain fetch for private LAN HTTPS without assertPublicAddresses", async () => {

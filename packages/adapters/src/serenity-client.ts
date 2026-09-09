@@ -2,10 +2,13 @@ import { isIP } from "node:net";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { isLocalMcpHost } from "@rakazo/contracts";
+import { Agent } from "undici";
 import { combineSignals } from "./connector-safety.js";
 import {
+  createAddressCheckedLookup,
   isCloudMetadataAddress,
   isPrivateAddress,
+  type ResolvedAddress,
   type ResolveHostname,
 } from "./network-address.js";
 import {
@@ -13,6 +16,7 @@ import {
   type RemoteTransportDependencies,
   type SafeRemoteFetch,
 } from "./remote-mcp.js";
+import { dispatcherFetch } from "./undici-fetch.js";
 import { isBlockedHostname } from "./web-ssrf.js";
 
 const SERENITY_TIMEOUT_MS = 15_000;
@@ -184,22 +188,74 @@ function verbErrorMessage(payload: unknown, fallback: string): string {
 }
 
 /**
- * Owner-gated loopback/private endpoints use plain fetch. Public HTTPS must
- * resolve + pin to public addresses (same SSRF policy as remote MCP).
- * Saved private trust (from prepare) or live DNS classification selects the path.
+ * Owner-gated private endpoints: IP literals use plain fetch; hostnames pin DNS
+ * to private non-metadata addresses so persisted endpointTrust cannot rebind to
+ * IMDS. Public HTTPS uses createSafeRemoteFetch (public-only pin).
  */
-async function serenityFetchPath(
+function serenityFetchPath(
   config: SerenityConnectionConfig,
   url: URL,
-  _resolveHostname?: ResolveHostname,
-): Promise<"private" | "public"> {
-  // Only saved/prepare trust or sync private heuristics may use plain fetch.
-  // Unclassified public-looking names stay on safe fetch so private DNS answers are rejected
-  // unless prepare marked endpointTrust=private (deployment-owner gated).
+): "private-literal" | "private-dns" | "public" {
   if (config.endpointTrust === "private" || serenityEndpointRequiresDeploymentOwner(url.href)) {
-    return "private";
+    return isIP(hostnameOf(url)) !== 0 ? "private-literal" : "private-dns";
   }
   return "public";
+}
+
+function defaultResolveHostname(): ResolveHostname {
+  return async (hostname: string) => {
+    const { lookup } = await import("node:dns/promises");
+    return lookup(hostname, { all: true, verbatim: true });
+  };
+}
+
+function assertPrivateLanAddresses(addresses: ResolvedAddress[]): void {
+  if (addresses.length === 0) {
+    throw new Error("Serenity endpoint did not resolve to an address.");
+  }
+  if (addresses.some((entry) => isCloudMetadataAddress(entry.address))) {
+    throw new Error("Serenity endpoint targets a blocked address.");
+  }
+  if (addresses.some((entry) => !isPrivateAddress(entry.address))) {
+    throw new Error("Serenity endpoint no longer resolves to a private address.");
+  }
+}
+
+/** Pin owner-gated hostname fetches to private LAN answers; reject metadata rebinding. */
+function createSerenityPrivateLanFetch(
+  baseFetch: typeof globalThis.fetch = dispatcherFetch,
+  resolve: ResolveHostname = defaultResolveHostname(),
+): SafeRemoteFetch {
+  const dispatcher = new Agent({
+    connect: { lookup: createAddressCheckedLookup(resolve, assertPrivateLanAddresses) },
+  });
+  const privateFetch = async (input: string | URL | Request, init?: RequestInit) => {
+    if (typeof input !== "string" && !(input instanceof URL)) {
+      throw new Error("Serenity fetch requires a URL, not a Request");
+    }
+    const url = new URL(String(input));
+    assertPrivateLanAddresses(await resolve(hostnameOf(url)));
+    let response: Response;
+    try {
+      response = await baseFetch(url, {
+        ...init,
+        redirect: "manual",
+        dispatcher,
+      } as RequestInit & { dispatcher: Agent });
+    } catch (error) {
+      throw new Error(
+        `Could not reach ${url.host}${error instanceof Error ? `: ${error.message}` : ""}`,
+        { cause: error },
+      );
+    }
+    if (response.status >= 300 && response.status < 400) {
+      throw new Error("Serenity MCP redirects are not permitted; configure the final URL.");
+    }
+    return response;
+  };
+  const result = privateFetch as SafeRemoteFetch;
+  result.close = () => dispatcher.close();
+  return result;
 }
 
 async function withSerenityClient<T>(
@@ -210,9 +266,14 @@ async function withSerenityClient<T>(
 ): Promise<T> {
   const url = normalizeSerenityEndpointUrl(config.endpoint);
   const requestSignal = combineSignals(signal, AbortSignal.timeout(SERENITY_TIMEOUT_MS));
-  const path = await serenityFetchPath(config, url, network.resolveHostname);
-  const safeRemoteFetch: SafeRemoteFetch | null =
-    path === "public" ? createSafeRemoteFetch(network.fetch, network.resolveHostname) : null;
+  const path = serenityFetchPath(config, url);
+  const resolve = network.resolveHostname ?? defaultResolveHostname();
+  const pinnedFetch: SafeRemoteFetch | null =
+    path === "public"
+      ? createSafeRemoteFetch(network.fetch, network.resolveHostname)
+      : path === "private-dns"
+        ? createSerenityPrivateLanFetch(network.fetch, resolve)
+        : null;
   const localFetch = network.fetch ?? globalThis.fetch;
   const transport = new StreamableHTTPClientTransport(url, {
     requestInit: {
@@ -224,7 +285,7 @@ async function withSerenityClient<T>(
       signal: requestSignal,
     },
     fetch: async (input, init) => {
-      if (safeRemoteFetch) return safeRemoteFetch(input, init);
+      if (pinnedFetch) return pinnedFetch(input, init);
       const response = await localFetch(input, { ...init, redirect: "manual" });
       if (response.status >= 300 && response.status < 400) {
         throw new Error("Serenity MCP redirects are not permitted; configure the final URL.");
@@ -238,7 +299,7 @@ async function withSerenityClient<T>(
     return await run(client, requestSignal);
   } finally {
     await client.close().catch(() => undefined);
-    await safeRemoteFetch?.close().catch(() => undefined);
+    await pinnedFetch?.close().catch(() => undefined);
   }
 }
 
