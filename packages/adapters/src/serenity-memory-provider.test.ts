@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createSerenityProvider,
   classifySerenityConnectionSettings,
+  MemoryProviderDeploymentOwnerRequiredError,
   prepareSerenityConnection,
   SerenityMemoryProvider,
   sanitizeSerenityBrainLabel,
@@ -108,7 +109,21 @@ describe("SerenityMemoryProvider", () => {
     expect(probeSerenityMock).not.toHaveBeenCalled();
   });
 
-it("stores private endpointTrust when HTTPS LAN DNS resolves privately", async () => {
+it("refuses private endpoints before probing when allowPrivateEndpoint is false", async () => {
+    await expect(
+      prepareSerenityConnection(
+        { endpoint: "https://serenity.example.test/mcp", allowWrites: "false" },
+        { token: "serenity_test_token" },
+        {
+          resolveHostname: async () => [{ address: "10.8.0.2", family: 4 as const }],
+        },
+        { allowPrivateEndpoint: false },
+      ),
+    ).rejects.toBeInstanceOf(MemoryProviderDeploymentOwnerRequiredError);
+    expect(probeSerenityMock).not.toHaveBeenCalled();
+  });
+
+  it("stores private endpointTrust when HTTPS LAN DNS resolves privately", async () => {
     probeSerenityMock.mockResolvedValue({ ok: true, value: undefined });
     const prepared = await prepareSerenityConnection(
       { endpoint: "https://serenity.example.test/mcp", allowWrites: "false" },

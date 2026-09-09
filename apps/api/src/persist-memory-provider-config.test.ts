@@ -1,4 +1,5 @@
 import type { PrismaClient } from "@rakazo/db";
+import { MemoryProviderDeploymentOwnerRequiredError } from "@rakazo/adapters";
 import { describe, expect, it, vi } from "vitest";
 import {
   disconnectMemoryProvider,
@@ -298,6 +299,35 @@ describe("persistMemoryProviderConfig", () => {
       ),
     ).rejects.toMatchObject({ code: "FORBIDDEN" });
     expect(prepareConnection).not.toHaveBeenCalled();
+    expect(transaction).not.toHaveBeenCalled();
+  });
+
+  it("rejects non-owners when prepare reclassifies a hostname as private before probing", async () => {
+    const prepareConnection = vi.fn(async () => {
+      throw new MemoryProviderDeploymentOwnerRequiredError();
+    });
+    const { deps, transaction } = makeDeps();
+    await expect(
+      persistMemoryProviderConfig(
+        {
+          ...deps,
+          classifySettings: async () => ({
+            endpoint: "https://serenity.example.test/mcp",
+          }),
+          prepareConnection,
+        },
+        actor,
+        {
+          provider: "serenity",
+          settings: { endpoint: "https://serenity.example.test/mcp", allowWrites: "false" },
+          credentials: { token: "serenity_test_token" },
+          defaultMemoryScope: "isolated",
+        },
+      ),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(prepareConnection).toHaveBeenCalledWith(
+      expect.objectContaining({ allowPrivateEndpoint: false }),
+    );
     expect(transaction).not.toHaveBeenCalled();
   });
 

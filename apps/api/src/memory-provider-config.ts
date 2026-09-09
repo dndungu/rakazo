@@ -2,6 +2,7 @@ import { ORPCError } from "@orpc/server";
 import type { SecretStore } from "@rakazo/adapter-kit";
 import {
   classifyMemoryProviderSettings,
+  MemoryProviderDeploymentOwnerRequiredError,
   memoryProviderRequiresDeploymentOwner,
   prepareMemoryProviderConnection,
   toStringRecord,
@@ -63,7 +64,11 @@ export async function persistMemoryProviderConfig(
     ) {
       throw new ORPCError("FORBIDDEN");
     }
-    prepared = await prepare({ ...input, settings: classifiedSettings });
+    prepared = await prepare({
+      ...input,
+      settings: classifiedSettings,
+      allowPrivateEndpoint: actor.isDeploymentOwner,
+    });
     // Defense in depth if prepare reclassified further.
     if (
       memoryProviderRequiresDeploymentOwner(prepared.provider, prepared.settings) &&
@@ -73,6 +78,9 @@ export async function persistMemoryProviderConfig(
     }
   } catch (error) {
     if (error instanceof ORPCError) throw error;
+    if (error instanceof MemoryProviderDeploymentOwnerRequiredError) {
+      throw new ORPCError("FORBIDDEN");
+    }
     throw new ORPCError("BAD_REQUEST", {
       message: error instanceof Error ? error.message : "Memory provider connection failed",
     });

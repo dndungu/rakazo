@@ -24,6 +24,16 @@ import {
 
 export const SERENITY_PROVIDER_ID = "serenity";
 
+/** Thrown when prepare would probe a private endpoint without deployment-owner authorization. */
+export class MemoryProviderDeploymentOwnerRequiredError extends Error {
+  readonly code = "DEPLOYMENT_OWNER_REQUIRED" as const;
+  constructor(message = "This memory provider endpoint requires deployment-owner authorization.") {
+    super(message);
+    this.name = "MemoryProviderDeploymentOwnerRequiredError";
+  }
+}
+
+
 function requiredValue(values: Record<string, string>, key: string): string {
   const value = values[key]?.trim();
   if (!value) throw new Error(`${key} is required`);
@@ -90,8 +100,17 @@ export async function prepareSerenityConnection(
   settings: Record<string, string>,
   credentials: Record<string, string>,
   network?: SerenityNetworkDependencies,
+  options?: { allowPrivateEndpoint?: boolean },
 ): Promise<{ settings: Record<string, string>; credentials: Record<string, string> }> {
   const classifiedSettings = await classifySerenityConnectionSettings(settings, network);
+  // Reclassification can flip public→private between the API owner check and this probe.
+  // Non-owners must fail closed here before any credentialed MCP request.
+  if (
+    classifiedSettings.endpointTrust === "private" &&
+    options?.allowPrivateEndpoint === false
+  ) {
+    throw new MemoryProviderDeploymentOwnerRequiredError();
+  }
   const connection = parseSerenityConnection(classifiedSettings, credentials);
   const probe = await probeSerenity(
     {

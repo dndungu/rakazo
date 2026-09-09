@@ -8,6 +8,8 @@ import {
   SERENITY_PROVIDER_ID,
   serenityRequiresDeploymentOwner,
 } from "./serenity-memory-provider.js";
+
+export { MemoryProviderDeploymentOwnerRequiredError } from "./serenity-memory-provider.js";
 import {
   createSupermemoryProvider,
   decodeLegacySupermemoryCredentials,
@@ -20,6 +22,8 @@ export interface MemoryProviderConnectionInput {
   provider: string;
   settings: Record<string, string>;
   credentials: Record<string, string>;
+  /** When false, Serenity must not probe endpoints that classify as private. */
+  allowPrivateEndpoint?: boolean;
 }
 
 export interface PreparedMemoryProviderConnection {
@@ -44,6 +48,7 @@ interface MemoryProviderAdapter {
   prepare(
     settings: Record<string, string>,
     credentials: Record<string, string>,
+    options?: { allowPrivateEndpoint?: boolean },
   ): Promise<{ settings: Record<string, string>; credentials: Record<string, string> }>;
   create(
     settings: Record<string, string>,
@@ -67,7 +72,8 @@ const MEMORY_PROVIDER_ADAPTERS: ReadonlyMap<string, MemoryProviderAdapter> = new
     {
       requiresDeploymentOwner: serenityRequiresDeploymentOwner,
       classifySettings: classifySerenityConnectionSettings,
-      prepare: prepareSerenityConnection,
+      prepare: (settings, credentials, options) =>
+        prepareSerenityConnection(settings, credentials, undefined, options),
       create: createSerenityProvider,
     },
   ],
@@ -105,6 +111,7 @@ export async function prepareMemoryProviderConnection(
   const prepared = await memoryProviderAdapter(input.provider).prepare(
     input.settings,
     input.credentials,
+    { allowPrivateEndpoint: input.allowPrivateEndpoint },
   );
   return { provider: input.provider, ...prepared };
 }
