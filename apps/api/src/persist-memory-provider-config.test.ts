@@ -274,6 +274,33 @@ describe("persistMemoryProviderConfig", () => {
     expect(secretDeleteMany).toHaveBeenCalledWith({ where: { id: "secret-old" } });
     vi.unstubAllGlobals();
   });
+
+  it("rejects non-deployment-owners for public-looking Serenity hostnames that resolve private, without probing", async () => {
+    const prepareConnection = vi.fn();
+    const { deps, transaction } = makeDeps();
+    await expect(
+      persistMemoryProviderConfig(
+        {
+          ...deps,
+          classifySettings: async () => ({
+            endpoint: "https://serenity.example.test/mcp",
+            endpointTrust: "private",
+          }),
+          prepareConnection,
+        },
+        actor,
+        {
+          provider: "serenity",
+          settings: { endpoint: "https://serenity.example.test/mcp", allowWrites: "false" },
+          credentials: { token: "serenity_test_token" },
+          defaultMemoryScope: "isolated",
+        },
+      ),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(prepareConnection).not.toHaveBeenCalled();
+    expect(transaction).not.toHaveBeenCalled();
+  });
+
 });
 
 describe("disconnectMemoryProvider", () => {

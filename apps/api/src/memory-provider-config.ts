@@ -1,6 +1,7 @@
 import { ORPCError } from "@orpc/server";
 import type { SecretStore } from "@rakazo/adapter-kit";
 import {
+  classifyMemoryProviderSettings,
   memoryProviderRequiresDeploymentOwner,
   prepareMemoryProviderConnection,
   toStringRecord,
@@ -12,6 +13,15 @@ import { withSerializableRetry } from "./serializable-retry.js";
 export interface MemoryProviderConfigDeps {
   prisma: PrismaClient;
   secrets: Pick<SecretStore, "put">;
+  /** Test seam: override DNS/trust classification without probing. */
+  classifySettings?: (
+    provider: string,
+    settings: Record<string, string>,
+  ) => Promise<Record<string, string>>;
+  /** Test seam: override prepare/probe. */
+  prepareConnection?: (
+    input: Parameters<typeof prepareMemoryProviderConnection>[0],
+  ) => ReturnType<typeof prepareMemoryProviderConnection>;
 }
 
 async function requireSpaceOwner(prisma: PrismaClient, actor: Actor): Promise<void> {
@@ -43,8 +53,18 @@ export async function persistMemoryProviderConfig(
     ) {
       throw new ORPCError("FORBIDDEN");
     }
-    prepared = await prepareMemoryProviderConnection(input);
-    // Prepare may classify public-looking LAN DNS as private via resolution.
+    const classify = deps.classifySettings ?? classifyMemoryProviderSettings;
+    const prepare = deps.prepareConnection ?? prepareMemoryProviderConnection;
+    // Classify DNS/trust before any credentialed probe so LAN endpoints stay owner-gated.
+    const classifiedSettings = await classify(input.provider, input.settings);
+    if (
+      memoryProviderRequiresDeploymentOwner(input.provider, classifiedSettings) &&
+      !actor.isDeploymentOwner
+    ) {
+      throw new ORPCError("FORBIDDEN");
+    }
+    prepared = await prepare({ ...input, settings: classifiedSettings });
+    // Defense in depth if prepare reclassified further.
     if (
       memoryProviderRequiresDeploymentOwner(prepared.provider, prepared.settings) &&
       !actor.isDeploymentOwner

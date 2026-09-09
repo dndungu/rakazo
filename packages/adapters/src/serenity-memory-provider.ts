@@ -69,18 +69,36 @@ export function serenityRequiresDeploymentOwner(settings: Record<string, string>
   }
 }
 
+/**
+ * DNS/trust classification without probing. Callers must enforce deployment-owner
+ * authorization on the result before any credentialed Serenity request.
+ */
+export async function classifySerenityConnectionSettings(
+  settings: Record<string, string>,
+  network?: SerenityNetworkDependencies,
+): Promise<Record<string, string>> {
+  const endpoint = normalizeSerenityEndpoint(requiredValue(settings, "endpoint"));
+  parseSerenityEndpoint(endpoint);
+  const endpointTrust = await classifySerenityEndpointTrust(endpoint, network?.resolveHostname);
+  const classified: Record<string, string> = { ...settings, endpoint };
+  if (endpointTrust === "private") classified.endpointTrust = "private";
+  else delete classified.endpointTrust;
+  return classified;
+}
+
 export async function prepareSerenityConnection(
   settings: Record<string, string>,
   credentials: Record<string, string>,
   network?: SerenityNetworkDependencies,
 ): Promise<{ settings: Record<string, string>; credentials: Record<string, string> }> {
-  const connection = parseSerenityConnection(settings, credentials);
-  const endpointTrust = await classifySerenityEndpointTrust(
-    connection.endpoint,
-    network?.resolveHostname,
-  );
+  const classifiedSettings = await classifySerenityConnectionSettings(settings, network);
+  const connection = parseSerenityConnection(classifiedSettings, credentials);
   const probe = await probeSerenity(
-    { endpoint: connection.endpoint, token: connection.token, endpointTrust },
+    {
+      endpoint: connection.endpoint,
+      token: connection.token,
+      endpointTrust: connection.endpointTrust,
+    },
     undefined,
     network,
     { requireWrites: connection.allowWrites },
@@ -90,7 +108,7 @@ export async function prepareSerenityConnection(
     settings: {
       endpoint: connection.endpoint,
       allowWrites: connection.allowWrites ? "true" : "false",
-      ...(endpointTrust === "private" ? { endpointTrust: "private" } : {}),
+      ...(connection.endpointTrust === "private" ? { endpointTrust: "private" } : {}),
       ...(connection.brainLabel ? { brainLabel: connection.brainLabel } : {}),
     },
     credentials: { token: connection.token },

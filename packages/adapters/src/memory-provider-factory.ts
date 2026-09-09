@@ -2,6 +2,7 @@ import type { DurableMemoryScope, SemanticMemoryProvider } from "@rakazo/adapter
 import type { PrismaClient } from "@rakazo/db";
 import type { EncryptedSecretStore } from "./secrets.js";
 import {
+  classifySerenityConnectionSettings,
   createSerenityProvider,
   prepareSerenityConnection,
   SERENITY_PROVIDER_ID,
@@ -38,6 +39,8 @@ export interface MemoryProviderResolver {
 
 interface MemoryProviderAdapter {
   requiresDeploymentOwner(settings: Record<string, string>): boolean;
+  /** Async trust classification (e.g. DNS) without probing credentials. */
+  classifySettings?(settings: Record<string, string>): Promise<Record<string, string>>;
   prepare(
     settings: Record<string, string>,
     credentials: Record<string, string>,
@@ -63,6 +66,7 @@ const MEMORY_PROVIDER_ADAPTERS: ReadonlyMap<string, MemoryProviderAdapter> = new
     SERENITY_PROVIDER_ID,
     {
       requiresDeploymentOwner: serenityRequiresDeploymentOwner,
+      classifySettings: classifySerenityConnectionSettings,
       prepare: prepareSerenityConnection,
       create: createSerenityProvider,
     },
@@ -81,6 +85,18 @@ export function memoryProviderRequiresDeploymentOwner(
   settings: Record<string, string>,
 ): boolean {
   return memoryProviderAdapter(provider).requiresDeploymentOwner(settings);
+}
+
+/**
+ * Run provider-specific trust classification (DNS, etc.) without credentialed probes.
+ * Callers must authorize deployment-owner endpoints before prepare/probe.
+ */
+export async function classifyMemoryProviderSettings(
+  provider: string,
+  settings: Record<string, string>,
+): Promise<Record<string, string>> {
+  const adapter = memoryProviderAdapter(provider);
+  return adapter.classifySettings ? adapter.classifySettings(settings) : settings;
 }
 
 export async function prepareMemoryProviderConnection(

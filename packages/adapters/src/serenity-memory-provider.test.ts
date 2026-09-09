@@ -2,6 +2,7 @@ import type { AdapterContext } from "@rakazo/adapter-kit";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createSerenityProvider,
+  classifySerenityConnectionSettings,
   prepareSerenityConnection,
   SerenityMemoryProvider,
   sanitizeSerenityBrainLabel,
@@ -95,7 +96,19 @@ describe("SerenityMemoryProvider", () => {
     ).toBe(true);
   });
 
-  it("stores private endpointTrust when HTTPS LAN DNS resolves privately", async () => {
+    it("classifies private LAN DNS without probing", async () => {
+    const classified = await classifySerenityConnectionSettings(
+      { endpoint: "https://serenity.example.test/mcp", allowWrites: "false" },
+      {
+        resolveHostname: async () => [{ address: "10.8.0.2", family: 4 as const }],
+      },
+    );
+    expect(classified.endpointTrust).toBe("private");
+    expect(serenityRequiresDeploymentOwner(classified)).toBe(true);
+    expect(probeSerenityMock).not.toHaveBeenCalled();
+  });
+
+it("stores private endpointTrust when HTTPS LAN DNS resolves privately", async () => {
     probeSerenityMock.mockResolvedValue({ ok: true, value: undefined });
     const prepared = await prepareSerenityConnection(
       { endpoint: "https://serenity.example.test/mcp", allowWrites: "false" },
