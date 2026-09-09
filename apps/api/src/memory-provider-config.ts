@@ -36,6 +36,7 @@ export async function persistMemoryProviderConfig(
   await requireSpaceOwner(deps.prisma, actor);
   let prepared: Awaited<ReturnType<typeof prepareMemoryProviderConnection>>;
   try {
+    // Fast-path known private endpoints before probing.
     if (
       memoryProviderRequiresDeploymentOwner(input.provider, input.settings) &&
       !actor.isDeploymentOwner
@@ -43,6 +44,13 @@ export async function persistMemoryProviderConfig(
       throw new ORPCError("FORBIDDEN");
     }
     prepared = await prepareMemoryProviderConnection(input);
+    // Prepare may classify public-looking LAN DNS as private via resolution.
+    if (
+      memoryProviderRequiresDeploymentOwner(prepared.provider, prepared.settings) &&
+      !actor.isDeploymentOwner
+    ) {
+      throw new ORPCError("FORBIDDEN");
+    }
   } catch (error) {
     if (error instanceof ORPCError) throw error;
     throw new ORPCError("BAD_REQUEST", {
