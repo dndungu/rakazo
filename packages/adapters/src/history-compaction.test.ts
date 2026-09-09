@@ -205,11 +205,13 @@ describe("formatRecalledMemory", () => {
         memory: "Ava prefers feature flags.",
         id: "fact-1",
         provenance: "evals/corpora/ava.yaml",
+        entity: "rakazo-space/workspace-1",
       },
     ]);
     expect(block).toContain("Ava prefers feature flags.");
     expect(block).toContain("provenance: evals/corpora/ava.yaml");
     expect(block).toContain("id: fact-1");
+    expect(block).toContain("entity: rakazo-space/workspace-1");
   });
 });
 

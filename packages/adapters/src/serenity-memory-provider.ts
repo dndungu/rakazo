@@ -163,21 +163,25 @@ export class SerenityMemoryProvider implements SemanticMemoryProvider {
       this.connection.brainLabel,
     );
     const results = await Promise.all(
-      entities.map((entity) =>
-        recallSerenity(request.query, this.connection, {
+      entities.map(async (entity) => ({
+        entity,
+        result: await recallSerenity(request.query, this.connection, {
           limit: request.limit,
           entity,
           signal: context.signal,
         }),
-      ),
+      })),
     );
-    const errors = results.filter((result) => !result.ok);
+    const errors = results.filter((entry) => !entry.result.ok);
     if (errors.length === results.length) {
-      return { ok: false, error: errors.map((result) => result.error).join("; ") };
+      return {
+        ok: false,
+        error: errors.map((entry) => (entry.result.ok ? "" : entry.result.error)).join("; "),
+      };
     }
     const seen = new Set<string>();
     const merged: SemanticMemoryResult[] = [];
-    for (const result of results) {
+    for (const { entity, result } of results) {
       if (!result.ok) continue;
       for (const fact of result.value) {
         if (seen.has(fact.factId)) continue;
@@ -187,6 +191,7 @@ export class SerenityMemoryProvider implements SemanticMemoryProvider {
           score: 1,
           id: fact.factId,
           provenance: fact.provenance,
+          entity,
         });
       }
     }
@@ -248,12 +253,15 @@ export class SerenityMemoryProvider implements SemanticMemoryProvider {
           "Serenity writes are disabled for this Space. Enable writing in Memory settings to forget facts.",
       };
     }
+    const entity =
+      request.entity?.trim() ||
+      (this.connection.brainLabel && context.botId
+        ? serenityBotEntity(context.botId, this.connection.brainLabel)
+        : undefined);
     const result = await forgetSerenity(request.id, this.connection, {
       reason: request.reason,
       signal: context.signal,
-      ...(this.connection.brainLabel && context.botId
-        ? { entity: serenityBotEntity(context.botId, this.connection.brainLabel) }
-        : {}),
+      ...(entity ? { entity } : {}),
     });
     return result.ok ? { ok: true, value: result.value } : result;
   }

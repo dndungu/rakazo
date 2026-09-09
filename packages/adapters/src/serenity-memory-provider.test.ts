@@ -123,6 +123,7 @@ describe("SerenityMemoryProvider", () => {
           score: 1,
           id: "fact-1",
           provenance: "user told rakazo",
+          entity: "rakazo-bot/bot-1",
         },
       ],
     });
@@ -246,6 +247,62 @@ describe("SerenityMemoryProvider", () => {
       provider().purgeHistory({ botId: "bot-1", generations: [1, 2] }, context),
     ).resolves.toEqual({ ok: true, value: undefined });
     expect(rememberSerenityMock).not.toHaveBeenCalled();
+  });
+
+  it("forgets a shared recall using the space entity from the citation", async () => {
+    recallSerenityMock
+      .mockResolvedValueOnce({
+        ok: true,
+        value: [
+          {
+            factId: "fact-space-1",
+            fact: "The team uses metric units.",
+            provenance: "space policy",
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        value: [],
+      });
+    forgetSerenityMock.mockResolvedValue({
+      ok: true,
+      value: { id: "fact-space-1", expired: true, reason: null },
+    });
+
+    const labeled = new SerenityMemoryProvider({
+      endpoint: "http://127.0.0.1:8787/mcp",
+      token: "serenity_test_token",
+      brainLabel: "Personal Brain",
+      allowWrites: true,
+    });
+    const recalled = await labeled.recall(
+      { query: "units", scope: "shared", botId: "bot-1", limit: 5 },
+      context,
+    );
+    expect(recalled).toEqual({
+      ok: true,
+      value: [
+        {
+          memory: "The team uses metric units.",
+          score: 1,
+          id: "fact-space-1",
+          provenance: "space policy",
+          entity: `rakazo-space/${PERSONAL_BRAIN}/workspace-1`,
+        },
+      ],
+    });
+
+    const fact = recalled.ok ? recalled.value[0] : undefined;
+    await labeled.forget({ id: fact!.id!, entity: fact!.entity, reason: "cleanup" }, context);
+    expect(forgetSerenityMock).toHaveBeenCalledWith(
+      "fact-space-1",
+      expect.objectContaining({ brainLabel: "Personal Brain" }),
+      expect.objectContaining({
+        reason: "cleanup",
+        entity: `rakazo-space/${PERSONAL_BRAIN}/workspace-1`,
+      }),
+    );
   });
 
   it("forgets by Serenity fact id when writes are enabled", async () => {

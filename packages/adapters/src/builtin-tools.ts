@@ -497,6 +497,11 @@ export const builtinAgentTools: ConnectorTool[] = [
       type: "object",
       properties: {
         id: { type: "string", description: "Memory id from a prior recall citation." },
+        entity: {
+          type: "string",
+          description:
+            "Optional entity/namespace from the recall citation when the provider scopes deletes.",
+        },
         reason: { type: "string", description: "Optional reason recorded with the forget." },
       },
       required: ["id"],

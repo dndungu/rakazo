@@ -100,7 +100,7 @@ export function historyWindowSize(options: {
 }
 
 export function formatRecalledMemory(
-  results: Array<{ memory: string; id?: string; provenance?: string }>,
+  results: Array<{ memory: string; id?: string; provenance?: string; entity?: string }>,
 ): string {
   if (results.length === 0) return "";
   const items = results
@@ -109,6 +109,7 @@ export function formatRecalledMemory(
       const citation = [
         result.provenance ? `provenance: ${escapePromptData(result.provenance)}` : null,
         result.id ? `id: ${escapePromptData(result.id)}` : null,
+        result.entity ? `entity: ${escapePromptData(result.entity)}` : null,
       ]
         .filter(Boolean)
         .join("; ");

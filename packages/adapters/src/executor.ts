@@ -2727,6 +2727,9 @@ export function createRunExecutor(deps: ExecutorDeps) {
               await semanticMemory.forget(
                 {
                   id: String(args.id ?? ""),
+                  ...(typeof args.entity === "string" && args.entity.trim()
+                    ? { entity: args.entity.trim() }
+                    : {}),
                   ...(typeof args.reason === "string" && args.reason.trim()
                     ? { reason: args.reason.trim() }
                     : {}),
