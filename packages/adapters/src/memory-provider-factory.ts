@@ -72,8 +72,11 @@ const MEMORY_PROVIDER_ADAPTERS: ReadonlyMap<string, MemoryProviderAdapter> = new
     {
       requiresDeploymentOwner: serenityRequiresDeploymentOwner,
       classifySettings: classifySerenityConnectionSettings,
-      prepare: (settings, credentials, options) =>
-        prepareSerenityConnection(settings, credentials, undefined, options),
+      prepare: (
+        settings: Record<string, string>,
+        credentials: Record<string, string>,
+        options?: { allowPrivateEndpoint?: boolean },
+      ) => prepareSerenityConnection(settings, credentials, undefined, options),
       create: createSerenityProvider,
     },
   ],
