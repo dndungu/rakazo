@@ -137,6 +137,25 @@ describe("serenity SSRF fetch path", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("pins private-trust HTTPS hostnames and rejects public rebinding", async () => {
+    const fetchMock = vi.fn(async () => new Response(null, { status: 204 }));
+    const result = await probeSerenity(
+      {
+        endpoint: "https://serenity.example.test/mcp",
+        token: TOKEN,
+        endpointTrust: "private",
+      },
+      undefined,
+      {
+        fetch: fetchMock,
+        resolveHostname: async () => [{ address: "203.0.113.10", family: 4 as const }],
+      },
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toMatch(/no longer resolves to a private address/i);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("pins private-trust HTTPS hostnames to private LAN answers", async () => {
     let resolved = false;
     const fetchMock = vi.fn(async () => {
