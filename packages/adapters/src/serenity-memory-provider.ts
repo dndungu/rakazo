@@ -253,15 +253,10 @@ export class SerenityMemoryProvider implements SemanticMemoryProvider {
           "Serenity writes are disabled for this Space. Enable writing in Memory settings to forget facts.",
       };
     }
-    const entity =
-      request.entity?.trim() ||
-      (this.connection.brainLabel && context.botId
-        ? serenityBotEntity(context.botId, this.connection.brainLabel)
-        : undefined);
+    // Serenity forget is id-scoped (opaque fact_id); entity namespaces do not apply.
     const result = await forgetSerenity(request.id, this.connection, {
       reason: request.reason,
       signal: context.signal,
-      ...(entity ? { entity } : {}),
     });
     return result.ok ? { ok: true, value: result.value } : result;
   }

@@ -344,7 +344,6 @@ export async function forgetSerenity(
   config: SerenityConnectionConfig,
   options: {
     reason?: string;
-    entity?: string;
     signal?: AbortSignal;
     network?: SerenityNetworkDependencies;
   } = {},
@@ -359,10 +358,10 @@ export async function forgetSerenity(
         const result = await client.callTool(
           {
             name: "forget",
+            // MEMORY_VERBS forget accepts only id + optional reason (additionalProperties: false).
             arguments: {
               id: factId,
               ...(options.reason?.trim() ? { reason: options.reason.trim() } : {}),
-              ...(options.entity ? { entity: options.entity } : {}),
             },
           },
           undefined,

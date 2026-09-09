@@ -185,7 +185,7 @@ describe("SerenityMemoryProvider", () => {
     ]);
   });
 
-  it("passes brain-scoped entity on forget when a label is set", async () => {
+  it("forgets by fact id only (Serenity forget has no entity argument)", async () => {
     forgetSerenityMock.mockResolvedValue({
       ok: true,
       value: { id: "fact-9", expired: true, reason: null },
@@ -197,24 +197,16 @@ describe("SerenityMemoryProvider", () => {
       brainLabel: "Personal Brain",
       allowWrites: true,
     });
-    await labeled.forget({ id: "fact-9", reason: "cleanup" }, context);
+    await labeled.forget(
+      { id: "fact-9", entity: `rakazo-bot/${PERSONAL_BRAIN}/bot-1`, reason: "cleanup" },
+      context,
+    );
     expect(forgetSerenityMock).toHaveBeenCalledWith(
       "fact-9",
       expect.objectContaining({ brainLabel: "Personal Brain" }),
-      expect.objectContaining({
-        reason: "cleanup",
-        entity: `rakazo-bot/${PERSONAL_BRAIN}/bot-1`,
-      }),
-    );
-
-    forgetSerenityMock.mockClear();
-    await provider().forget({ id: "fact-9", reason: "cleanup" }, context);
-    expect(forgetSerenityMock).toHaveBeenCalledWith(
-      "fact-9",
-      expect.objectContaining({ brainLabel: "" }),
       expect.objectContaining({ reason: "cleanup" }),
     );
-    expect(forgetSerenityMock.mock.calls[0]?.[2]?.entity).toBeUndefined();
+    expect(forgetSerenityMock.mock.calls[0]?.[2]).not.toHaveProperty("entity");
   });
 
   it("blocks durable writes when allowWrites is off", async () => {
@@ -249,7 +241,7 @@ describe("SerenityMemoryProvider", () => {
     expect(rememberSerenityMock).not.toHaveBeenCalled();
   });
 
-  it("forgets a shared recall using the space entity from the citation", async () => {
+  it("keeps recall entity citations without forwarding them to Serenity forget", async () => {
     recallSerenityMock
       .mockResolvedValueOnce({
         ok: true,
@@ -298,11 +290,9 @@ describe("SerenityMemoryProvider", () => {
     expect(forgetSerenityMock).toHaveBeenCalledWith(
       "fact-space-1",
       expect.objectContaining({ brainLabel: "Personal Brain" }),
-      expect.objectContaining({
-        reason: "cleanup",
-        entity: `rakazo-space/${PERSONAL_BRAIN}/workspace-1`,
-      }),
+      expect.objectContaining({ reason: "cleanup" }),
     );
+    expect(forgetSerenityMock.mock.calls[0]?.[2]).not.toHaveProperty("entity");
   });
 
   it("forgets by Serenity fact id when writes are enabled", async () => {
