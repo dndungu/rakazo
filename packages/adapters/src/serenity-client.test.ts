@@ -160,7 +160,8 @@ describe("serenity SSRF fetch path", () => {
     expect(resolved).toBe(true);
     expect(fetchMock).toHaveBeenCalled();
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error).toMatch(/private-resolving-dns-fetch-reached|Could not reach/);
+    if (!result.ok)
+      expect(result.error).toMatch(/private-resolving-dns-fetch-reached|Could not reach/);
   });
 
   it("classifies private-resolving HTTPS hostnames as private trust", async () => {
