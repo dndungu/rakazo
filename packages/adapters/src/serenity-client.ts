@@ -1,14 +1,14 @@
-import { isIP } from "node:net";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { isLocalMcpHost } from "@rakazo/contracts";
 import { combineSignals } from "./connector-safety.js";
-import { isCloudMetadataAddress, isPrivateAddress } from "./network-address.js";
+import { isCloudMetadataAddress } from "./network-address.js";
 import {
   createSafeRemoteFetch,
   type RemoteTransportDependencies,
   type SafeRemoteFetch,
 } from "./remote-mcp.js";
+import { isBlockedHostname } from "./web-ssrf.js";
 
 const SERENITY_TIMEOUT_MS = 15_000;
 export const MAX_SERENITY_FACT_CHARS = 10_000;
@@ -81,13 +81,12 @@ function hostnameOf(url: URL): string {
   return url.hostname.replace(/^\[|\]$/g, "");
 }
 
-/** Loopback or RFC1918/ULA hosts need deployment-owner authorization. */
+/** Loopback, RFC1918/ULA, or private DNS names need deployment-owner authorization. */
 export function serenityEndpointRequiresDeploymentOwner(endpoint: string): boolean {
   const url = parseSerenityEndpoint(endpoint);
   const host = hostnameOf(url);
-  if (isLocalMcpHost(host)) return true;
-  if (isIP(host) !== 0) return isPrivateAddress(host);
-  // Unresolved hostnames may be LAN DNS; treat non-HTTPS as private trust boundary.
+  if (isLocalMcpHost(host) || isBlockedHostname(host)) return true;
+  // Unresolved public-looking hostnames may still be LAN DNS over HTTP.
   return url.protocol === "http:";
 }
 

@@ -26,10 +26,11 @@ describe("serenity endpoint helpers", () => {
     );
   });
 
-  it("requires deployment-owner trust for loopback and private LAN", () => {
+  it("requires deployment-owner trust for loopback, private LAN, and private DNS", () => {
     expect(serenityEndpointRequiresDeploymentOwner("http://127.0.0.1:8787/mcp")).toBe(true);
     expect(serenityEndpointRequiresDeploymentOwner("http://192.168.1.10:8787/mcp")).toBe(true);
     expect(serenityEndpointRequiresDeploymentOwner("https://192.168.1.10:8787/mcp")).toBe(true);
+    expect(serenityEndpointRequiresDeploymentOwner("https://serenity.internal/mcp")).toBe(true);
     expect(serenityEndpointRequiresDeploymentOwner("https://serenity.example.test/mcp")).toBe(
       false,
     );
@@ -99,6 +100,28 @@ describe("serenity SSRF fetch path", () => {
     expect(fetchMock).toHaveBeenCalled();
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toMatch(/plain-fetch-reached/);
+  });
+
+  it("uses plain fetch for private DNS HTTPS without rejecting private addresses", async () => {
+    let resolved = false;
+    const fetchMock = vi.fn(async () => {
+      throw new Error("private-dns-fetch-reached");
+    });
+    const result = await probeSerenity(
+      { endpoint: "https://serenity.internal/mcp", token: TOKEN },
+      undefined,
+      {
+        fetch: fetchMock,
+        resolveHostname: async () => {
+          resolved = true;
+          return [{ address: "10.1.2.3", family: 4 as const }];
+        },
+      },
+    );
+    expect(resolved).toBe(false);
+    expect(fetchMock).toHaveBeenCalled();
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toMatch(/private-dns-fetch-reached/);
   });
 
   it("uses plain fetch for private LAN HTTPS without assertPublicAddresses", async () => {

@@ -79,8 +79,11 @@ describe("SerenityMemoryProvider", () => {
     );
   });
 
-  it("requires deployment owner for loopback endpoints", () => {
+  it("requires deployment owner for loopback and private DNS endpoints", () => {
     expect(serenityRequiresDeploymentOwner({ endpoint: "http://127.0.0.1:8787/mcp" })).toBe(true);
+    expect(serenityRequiresDeploymentOwner({ endpoint: "https://serenity.internal/mcp" })).toBe(
+      true,
+    );
     expect(serenityRequiresDeploymentOwner({ endpoint: "https://serenity.example.test/mcp" })).toBe(
       false,
     );
