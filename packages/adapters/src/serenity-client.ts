@@ -344,6 +344,7 @@ export async function forgetSerenity(
   config: SerenityConnectionConfig,
   options: {
     reason?: string;
+    entity?: string;
     signal?: AbortSignal;
     network?: SerenityNetworkDependencies;
   } = {},
@@ -361,6 +362,7 @@ export async function forgetSerenity(
             arguments: {
               id: factId,
               ...(options.reason?.trim() ? { reason: options.reason.trim() } : {}),
+              ...(options.entity ? { entity: options.entity } : {}),
             },
           },
           undefined,

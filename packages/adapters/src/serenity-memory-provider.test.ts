@@ -169,6 +169,39 @@ describe("SerenityMemoryProvider", () => {
     ]);
   });
 
+
+  it("passes brain-scoped entity on forget when a label is set", async () => {
+    forgetSerenityMock.mockResolvedValue({
+      ok: true,
+      value: { id: "fact-9", expired: true, reason: null },
+    });
+
+    const labeled = new SerenityMemoryProvider({
+      endpoint: "http://127.0.0.1:8787/mcp",
+      token: "serenity_test_token",
+      brainLabel: "Personal Brain",
+      allowWrites: true,
+    });
+    await labeled.forget({ id: "fact-9", reason: "cleanup" }, context);
+    expect(forgetSerenityMock).toHaveBeenCalledWith(
+      "fact-9",
+      expect.objectContaining({ brainLabel: "Personal Brain" }),
+      expect.objectContaining({
+        reason: "cleanup",
+        entity: "rakazo-bot/personal-brain/bot-1",
+      }),
+    );
+
+    forgetSerenityMock.mockClear();
+    await provider().forget({ id: "fact-9", reason: "cleanup" }, context);
+    expect(forgetSerenityMock).toHaveBeenCalledWith(
+      "fact-9",
+      expect.objectContaining({ brainLabel: "" }),
+      expect.objectContaining({ reason: "cleanup" }),
+    );
+    expect(forgetSerenityMock.mock.calls[0]?.[2]?.entity).toBeUndefined();
+  });
+
   it("blocks durable writes when allowWrites is off", async () => {
     const result = await provider(false).save(
       {

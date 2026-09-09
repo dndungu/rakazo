@@ -245,6 +245,9 @@ export class SerenityMemoryProvider implements SemanticMemoryProvider {
     const result = await forgetSerenity(request.id, this.connection, {
       reason: request.reason,
       signal: context.signal,
+      ...(this.connection.brainLabel
+        ? { entity: serenityBotEntity(context.botId, this.connection.brainLabel) }
+        : {}),
     });
     return result.ok ? { ok: true, value: result.value } : result;
   }
