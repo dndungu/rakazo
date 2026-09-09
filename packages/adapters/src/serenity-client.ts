@@ -221,40 +221,48 @@ function assertPrivateLanAddresses(addresses: ResolvedAddress[]): void {
   }
 }
 
-/** Pin owner-gated hostname fetches to private LAN answers; reject metadata rebinding. */
+/**
+ * Pin owner-gated hostname fetches to one private LAN answer set for the request.
+ * Resolve once, then reuse those addresses in the dispatcher lookup so a second DNS
+ * answer cannot redirect the bearer token to a different internal host.
+ */
 function createSerenityPrivateLanFetch(
   baseFetch: typeof globalThis.fetch = dispatcherFetch,
   resolve: ResolveHostname = defaultResolveHostname(),
 ): SafeRemoteFetch {
-  const dispatcher = new Agent({
-    connect: { lookup: createAddressCheckedLookup(resolve, assertPrivateLanAddresses) },
-  });
   const privateFetch = async (input: string | URL | Request, init?: RequestInit) => {
     if (typeof input !== "string" && !(input instanceof URL)) {
       throw new Error("Serenity fetch requires a URL, not a Request");
     }
     const url = new URL(String(input));
-    assertPrivateLanAddresses(await resolve(hostnameOf(url)));
-    let response: Response;
+    const pinned = await resolve(hostnameOf(url));
+    assertPrivateLanAddresses(pinned);
+    const dispatcher = new Agent({
+      connect: {
+        lookup: createAddressCheckedLookup(async () => pinned, assertPrivateLanAddresses),
+      },
+    });
     try {
-      response = await baseFetch(url, {
+      const response = await baseFetch(url, {
         ...init,
         redirect: "manual",
         dispatcher,
       } as RequestInit & { dispatcher: Agent });
+      if (response.status >= 300 && response.status < 400) {
+        throw new Error("Serenity MCP redirects are not permitted; configure the final URL.");
+      }
+      return response;
     } catch (error) {
       throw new Error(
         `Could not reach ${url.host}${error instanceof Error ? `: ${error.message}` : ""}`,
         { cause: error },
       );
+    } finally {
+      await dispatcher.close().catch(() => undefined);
     }
-    if (response.status >= 300 && response.status < 400) {
-      throw new Error("Serenity MCP redirects are not permitted; configure the final URL.");
-    }
-    return response;
   };
   const result = privateFetch as SafeRemoteFetch;
-  result.close = () => dispatcher.close();
+  result.close = async () => undefined;
   return result;
 }
 
