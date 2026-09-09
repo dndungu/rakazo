@@ -4,10 +4,17 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { isLocalMcpHost } from "@rakazo/contracts";
 import { combineSignals } from "./connector-safety.js";
 import { isCloudMetadataAddress, isPrivateAddress } from "./network-address.js";
+import {
+  createSafeRemoteFetch,
+  type RemoteTransportDependencies,
+  type SafeRemoteFetch,
+} from "./remote-mcp.js";
 
 const SERENITY_TIMEOUT_MS = 15_000;
 export const MAX_SERENITY_FACT_CHARS = 10_000;
 export const MAX_SERENITY_PROVENANCE_CHARS = 500;
+
+export type SerenityNetworkDependencies = RemoteTransportDependencies;
 
 export interface SerenityConnectionConfig {
   endpoint: string;
@@ -139,15 +146,28 @@ function verbErrorMessage(payload: unknown, fallback: string): string {
   return parts.length > 0 ? parts.join(" ") : fallback;
 }
 
+/**
+ * Owner-gated loopback/private endpoints use plain fetch. Public HTTPS must
+ * resolve + pin to public addresses (same SSRF policy as remote MCP).
+ */
+function serenityFetchPath(url: URL): "private" | "public" {
+  return serenityEndpointRequiresDeploymentOwner(url.href) ? "private" : "public";
+}
+
 async function withSerenityClient<T>(
   config: SerenityConnectionConfig,
   signal: AbortSignal | undefined,
   run: (client: Client, signal: AbortSignal) => Promise<T>,
+  network: SerenityNetworkDependencies = {},
 ): Promise<T> {
   const endpoint = normalizeSerenityEndpoint(config.endpoint);
   const url = parseSerenityEndpoint(endpoint);
   assertAllowedSerenityEndpoint(url);
   const requestSignal = combineSignals(signal, AbortSignal.timeout(SERENITY_TIMEOUT_MS));
+  const path = serenityFetchPath(url);
+  const safeRemoteFetch: SafeRemoteFetch | null =
+    path === "public" ? createSafeRemoteFetch(network.fetch, network.resolveHostname) : null;
+  const localFetch = network.fetch ?? globalThis.fetch;
   const transport = new StreamableHTTPClientTransport(url, {
     requestInit: {
       headers: {
@@ -158,7 +178,8 @@ async function withSerenityClient<T>(
       signal: requestSignal,
     },
     fetch: async (input, init) => {
-      const response = await fetch(input, { ...init, redirect: "manual" });
+      if (safeRemoteFetch) return safeRemoteFetch(input, init);
+      const response = await localFetch(input, { ...init, redirect: "manual" });
       if (response.status >= 300 && response.status < 400) {
         throw new Error("Serenity MCP redirects are not permitted; configure the final URL.");
       }
@@ -171,26 +192,33 @@ async function withSerenityClient<T>(
     return await run(client, requestSignal);
   } finally {
     await client.close().catch(() => undefined);
+    await safeRemoteFetch?.close().catch(() => undefined);
   }
 }
 
 export async function probeSerenity(
   config: SerenityConnectionConfig,
   signal?: AbortSignal,
+  network?: SerenityNetworkDependencies,
 ): Promise<SerenityResult<void>> {
   try {
-    await withSerenityClient(config, signal, async (client, requestSignal) => {
-      const listed = await client.listTools(
-        {},
-        { signal: requestSignal, timeout: SERENITY_TIMEOUT_MS },
-      );
-      const names = new Set(listed.tools.map((tool) => tool.name));
-      for (const required of ["recall", "remember", "forget"] as const) {
-        if (!names.has(required)) {
-          throw new Error(`Serenity MCP is missing the "${required}" tool.`);
+    await withSerenityClient(
+      config,
+      signal,
+      async (client, requestSignal) => {
+        const listed = await client.listTools(
+          {},
+          { signal: requestSignal, timeout: SERENITY_TIMEOUT_MS },
+        );
+        const names = new Set(listed.tools.map((tool) => tool.name));
+        for (const required of ["recall", "remember", "forget"] as const) {
+          if (!names.has(required)) {
+            throw new Error(`Serenity MCP is missing the "${required}" tool.`);
+          }
         }
-      }
-    });
+      },
+      network,
+    );
     return { ok: true, value: undefined };
   } catch (error) {
     return {
@@ -203,28 +231,38 @@ export async function probeSerenity(
 export async function recallSerenity(
   query: string,
   config: SerenityConnectionConfig,
-  options: { limit: number; entity?: string; signal?: AbortSignal },
+  options: {
+    limit: number;
+    entity?: string;
+    signal?: AbortSignal;
+    network?: SerenityNetworkDependencies;
+  },
 ): Promise<SerenityResult<SerenityRecallFact[]>> {
   try {
-    const payload = await withSerenityClient(config, options.signal, async (client, signal) => {
-      const result = await client.callTool(
-        {
-          name: "recall",
-          arguments: {
-            query,
-            limit: Math.min(Math.max(1, Math.floor(options.limit)), 50),
-            ...(options.entity ? { entity: options.entity } : {}),
+    const payload = await withSerenityClient(
+      config,
+      options.signal,
+      async (client, signal) => {
+        const result = await client.callTool(
+          {
+            name: "recall",
+            arguments: {
+              query,
+              limit: Math.min(Math.max(1, Math.floor(options.limit)), 50),
+              ...(options.entity ? { entity: options.entity } : {}),
+            },
           },
-        },
-        undefined,
-        { signal, timeout: SERENITY_TIMEOUT_MS },
-      );
-      const body = mcpTextPayload(result);
-      if (toolCallIsError(result)) {
-        throw new Error(verbErrorMessage(body, "Serenity recall failed"));
-      }
-      return body;
-    });
+          undefined,
+          { signal, timeout: SERENITY_TIMEOUT_MS },
+        );
+        const body = mcpTextPayload(result);
+        if (toolCallIsError(result)) {
+          throw new Error(verbErrorMessage(body, "Serenity recall failed"));
+        }
+        return body;
+      },
+      options.network,
+    );
     return { ok: true, value: parseRecallFacts(payload).slice(0, options.limit) };
   } catch (error) {
     return {
@@ -238,32 +276,41 @@ export async function rememberSerenity(
   fact: string,
   provenance: string,
   config: SerenityConnectionConfig,
-  options: { entity?: string; signal?: AbortSignal } = {},
+  options: {
+    entity?: string;
+    signal?: AbortSignal;
+    network?: SerenityNetworkDependencies;
+  } = {},
 ): Promise<SerenityResult<SerenityRememberResult>> {
   const trimmedFact = fact.trim().slice(0, MAX_SERENITY_FACT_CHARS);
   const trimmedProvenance = provenance.trim().slice(0, MAX_SERENITY_PROVENANCE_CHARS);
   if (!trimmedFact) return { ok: false, error: "fact is required" };
   if (!trimmedProvenance) return { ok: false, error: "provenance is required" };
   try {
-    const payload = await withSerenityClient(config, options.signal, async (client, signal) => {
-      const result = await client.callTool(
-        {
-          name: "remember",
-          arguments: {
-            fact: trimmedFact,
-            provenance: trimmedProvenance,
-            ...(options.entity ? { entity: options.entity } : {}),
+    const payload = await withSerenityClient(
+      config,
+      options.signal,
+      async (client, signal) => {
+        const result = await client.callTool(
+          {
+            name: "remember",
+            arguments: {
+              fact: trimmedFact,
+              provenance: trimmedProvenance,
+              ...(options.entity ? { entity: options.entity } : {}),
+            },
           },
-        },
-        undefined,
-        { signal, timeout: SERENITY_TIMEOUT_MS },
-      );
-      const body = mcpTextPayload(result);
-      if (toolCallIsError(result)) {
-        throw new Error(verbErrorMessage(body, "Serenity remember failed"));
-      }
-      return body;
-    });
+          undefined,
+          { signal, timeout: SERENITY_TIMEOUT_MS },
+        );
+        const body = mcpTextPayload(result);
+        if (toolCallIsError(result)) {
+          throw new Error(verbErrorMessage(body, "Serenity remember failed"));
+        }
+        return body;
+      },
+      options.network,
+    );
     if (!payload || typeof payload !== "object") {
       return { ok: false, error: "Serenity remember returned an unexpected payload" };
     }
@@ -290,29 +337,38 @@ export async function rememberSerenity(
 export async function forgetSerenity(
   id: string,
   config: SerenityConnectionConfig,
-  options: { reason?: string; signal?: AbortSignal } = {},
+  options: {
+    reason?: string;
+    signal?: AbortSignal;
+    network?: SerenityNetworkDependencies;
+  } = {},
 ): Promise<SerenityResult<SerenityForgetResult>> {
   const factId = id.trim();
   if (!factId) return { ok: false, error: "id is required" };
   try {
-    const payload = await withSerenityClient(config, options.signal, async (client, signal) => {
-      const result = await client.callTool(
-        {
-          name: "forget",
-          arguments: {
-            id: factId,
-            ...(options.reason?.trim() ? { reason: options.reason.trim() } : {}),
+    const payload = await withSerenityClient(
+      config,
+      options.signal,
+      async (client, signal) => {
+        const result = await client.callTool(
+          {
+            name: "forget",
+            arguments: {
+              id: factId,
+              ...(options.reason?.trim() ? { reason: options.reason.trim() } : {}),
+            },
           },
-        },
-        undefined,
-        { signal, timeout: SERENITY_TIMEOUT_MS },
-      );
-      const body = mcpTextPayload(result);
-      if (toolCallIsError(result)) {
-        throw new Error(verbErrorMessage(body, "Serenity forget failed"));
-      }
-      return body;
-    });
+          undefined,
+          { signal, timeout: SERENITY_TIMEOUT_MS },
+        );
+        const body = mcpTextPayload(result);
+        if (toolCallIsError(result)) {
+          throw new Error(verbErrorMessage(body, "Serenity forget failed"));
+        }
+        return body;
+      },
+      options.network,
+    );
     if (!payload || typeof payload !== "object") {
       return { ok: false, error: "Serenity forget returned an unexpected payload" };
     }

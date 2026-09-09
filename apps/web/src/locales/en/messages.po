@@ -3735,3 +3735,23 @@ msgstr "Opening chat…"
 
 msgid "Try again"
 msgstr "Try again"
+
+#: apps/web/src/pages/memory-providers/SerenitySettingsForm.tsx
+msgid "MCP endpoint"
+msgstr "MCP endpoint"
+
+#: apps/web/src/pages/memory-providers/SerenitySettingsForm.tsx
+msgid "Brain label"
+msgstr "Brain label"
+
+#: apps/web/src/pages/memory-providers/SerenitySettingsForm.tsx
+msgid "Allow writing"
+msgstr "Allow writing"
+
+#: apps/web/src/pages/memory-providers/SerenitySettingsForm.tsx
+msgid "Recall only"
+msgstr "Recall only"
+
+#: apps/web/src/pages/memory-providers/SerenitySettingsForm.tsx
+msgid "Recall and write"
+msgstr "Recall and write"
