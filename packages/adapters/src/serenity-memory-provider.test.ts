@@ -169,7 +169,6 @@ describe("SerenityMemoryProvider", () => {
     ]);
   });
 
-
   it("passes brain-scoped entity on forget when a label is set", async () => {
     forgetSerenityMock.mockResolvedValue({
       ok: true,
