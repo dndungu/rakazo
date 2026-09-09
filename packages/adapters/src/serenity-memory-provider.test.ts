@@ -79,7 +79,7 @@ describe("SerenityMemoryProvider", () => {
     );
   });
 
-  it("requires deployment owner for loopback and private DNS endpoints", () => {
+  it("requires deployment owner for loopback, private DNS, and classified LAN hosts", () => {
     expect(serenityRequiresDeploymentOwner({ endpoint: "http://127.0.0.1:8787/mcp" })).toBe(true);
     expect(serenityRequiresDeploymentOwner({ endpoint: "https://serenity.internal/mcp" })).toBe(
       true,
@@ -87,6 +87,25 @@ describe("SerenityMemoryProvider", () => {
     expect(serenityRequiresDeploymentOwner({ endpoint: "https://serenity.example.test/mcp" })).toBe(
       false,
     );
+    expect(
+      serenityRequiresDeploymentOwner({
+        endpoint: "https://serenity.example.test/mcp",
+        endpointTrust: "private",
+      }),
+    ).toBe(true);
+  });
+
+  it("stores private endpointTrust when HTTPS LAN DNS resolves privately", async () => {
+    probeSerenityMock.mockResolvedValue({ ok: true, value: undefined });
+    const prepared = await prepareSerenityConnection(
+      { endpoint: "https://serenity.example.test/mcp", allowWrites: "false" },
+      { token: "serenity_test_token" },
+      {
+        resolveHostname: async () => [{ address: "10.8.0.2", family: 4 as const }],
+      },
+    );
+    expect(prepared.settings.endpointTrust).toBe("private");
+    expect(serenityRequiresDeploymentOwner(prepared.settings)).toBe(true);
   });
 
   it("probes before accepting a connection", async () => {

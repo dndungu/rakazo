@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  classifySerenityEndpointTrust,
   normalizeSerenityEndpoint,
   parseSerenityEndpoint,
   probeSerenity,
@@ -102,6 +103,59 @@ describe("serenity SSRF fetch path", () => {
     if (!result.ok) expect(result.error).toMatch(/plain-fetch-reached/);
   });
 
+  it("rejects public-looking HTTPS when DNS is private unless prepare marked trust", async () => {
+    const fetchMock = vi.fn(async () => new Response(null, { status: 204 }));
+    const result = await probeSerenity(
+      { endpoint: "https://serenity.example.test/mcp", token: TOKEN },
+      undefined,
+      {
+        fetch: fetchMock,
+        resolveHostname: async () => [{ address: "10.8.0.2", family: 4 as const }],
+      },
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toMatch(/private address/i);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("uses plain fetch for public-looking HTTPS when endpointTrust is private", async () => {
+    let resolved = false;
+    const fetchMock = vi.fn(async () => {
+      throw new Error("private-resolving-dns-fetch-reached");
+    });
+    const result = await probeSerenity(
+      {
+        endpoint: "https://serenity.example.test/mcp",
+        token: TOKEN,
+        endpointTrust: "private",
+      },
+      undefined,
+      {
+        fetch: fetchMock,
+        resolveHostname: async () => {
+          resolved = true;
+          return [{ address: "10.8.0.2", family: 4 as const }];
+        },
+      },
+    );
+    expect(resolved).toBe(false);
+    expect(fetchMock).toHaveBeenCalled();
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toMatch(/private-resolving-dns-fetch-reached/);
+  });
+
+  it("classifies private-resolving HTTPS hostnames as private trust", async () => {
+    await expect(
+      classifySerenityEndpointTrust("https://serenity.example.test/mcp", async () => [
+        { address: "10.8.0.2", family: 4 as const },
+      ]),
+    ).resolves.toBe("private");
+    await expect(
+      classifySerenityEndpointTrust("https://serenity.example.test/mcp", async () => [
+        { address: "203.0.113.10", family: 4 as const },
+      ]),
+    ).resolves.toBe("public");
+  });
   it("uses plain fetch for private DNS HTTPS without rejecting private addresses", async () => {
     let resolved = false;
     const fetchMock = vi.fn(async () => {

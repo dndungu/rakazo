@@ -2,7 +2,11 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { isLocalMcpHost } from "@rakazo/contracts";
 import { combineSignals } from "./connector-safety.js";
-import { isCloudMetadataAddress } from "./network-address.js";
+import {
+  isCloudMetadataAddress,
+  isPrivateAddress,
+  type ResolveHostname,
+} from "./network-address.js";
 import {
   createSafeRemoteFetch,
   type RemoteTransportDependencies,
@@ -19,6 +23,8 @@ export type SerenityNetworkDependencies = RemoteTransportDependencies;
 export interface SerenityConnectionConfig {
   endpoint: string;
   token: string;
+  /** Set when prepare classifies the endpoint as private LAN/DNS. */
+  endpointTrust?: "private" | "public";
 }
 
 export type SerenityResult<T> = { ok: true; value: T } | { ok: false; error: string };
@@ -90,6 +96,34 @@ export function serenityEndpointRequiresDeploymentOwner(endpoint: string): boole
   return url.protocol === "http:";
 }
 
+/**
+ * Classifies endpoint trust for fetch + owner gating. Public-looking HTTPS names
+ * that resolve only to private addresses are treated as private LAN endpoints.
+ */
+export async function classifySerenityEndpointTrust(
+  endpoint: string,
+  resolveHostname?: ResolveHostname,
+): Promise<"private" | "public"> {
+  const url = parseSerenityEndpoint(endpoint);
+  if (serenityEndpointRequiresDeploymentOwner(url.href)) return "private";
+  const host = hostnameOf(url);
+  const resolve =
+    resolveHostname ??
+    (async (hostname: string) => {
+      const { lookup } = await import("node:dns/promises");
+      return lookup(hostname, { all: true, verbatim: true });
+    });
+  const addresses = await resolve(host);
+  if (addresses.length === 0) {
+    throw new Error("Serenity endpoint did not resolve to an address.");
+  }
+  if (addresses.some((entry) => isCloudMetadataAddress(entry.address))) {
+    throw new Error("Serenity endpoint targets a blocked address.");
+  }
+  if (addresses.some((entry) => isPrivateAddress(entry.address))) return "private";
+  return "public";
+}
+
 function assertAllowedSerenityEndpoint(url: URL): void {
   const host = hostnameOf(url);
   if (isCloudMetadataAddress(host)) {
@@ -150,9 +184,20 @@ function verbErrorMessage(payload: unknown, fallback: string): string {
 /**
  * Owner-gated loopback/private endpoints use plain fetch. Public HTTPS must
  * resolve + pin to public addresses (same SSRF policy as remote MCP).
+ * Saved private trust (from prepare) or live DNS classification selects the path.
  */
-function serenityFetchPath(url: URL): "private" | "public" {
-  return serenityEndpointRequiresDeploymentOwner(url.href) ? "private" : "public";
+async function serenityFetchPath(
+  config: SerenityConnectionConfig,
+  url: URL,
+  _resolveHostname?: ResolveHostname,
+): Promise<"private" | "public"> {
+  // Only saved/prepare trust or sync private heuristics may use plain fetch.
+  // Unclassified public-looking names stay on safe fetch so private DNS answers are rejected
+  // unless prepare marked endpointTrust=private (deployment-owner gated).
+  if (config.endpointTrust === "private" || serenityEndpointRequiresDeploymentOwner(url.href)) {
+    return "private";
+  }
+  return "public";
 }
 
 async function withSerenityClient<T>(
@@ -163,7 +208,7 @@ async function withSerenityClient<T>(
 ): Promise<T> {
   const url = normalizeSerenityEndpointUrl(config.endpoint);
   const requestSignal = combineSignals(signal, AbortSignal.timeout(SERENITY_TIMEOUT_MS));
-  const path = serenityFetchPath(url);
+  const path = await serenityFetchPath(config, url, network.resolveHostname);
   const safeRemoteFetch: SafeRemoteFetch | null =
     path === "public" ? createSafeRemoteFetch(network.fetch, network.resolveHostname) : null;
   const localFetch = network.fetch ?? globalThis.fetch;
