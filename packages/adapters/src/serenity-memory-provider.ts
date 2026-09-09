@@ -68,7 +68,12 @@ export async function prepareSerenityConnection(
   credentials: Record<string, string>,
 ): Promise<{ settings: Record<string, string>; credentials: Record<string, string> }> {
   const connection = parseSerenityConnection(settings, credentials);
-  const probe = await probeSerenity({ endpoint: connection.endpoint, token: connection.token });
+  const probe = await probeSerenity(
+    { endpoint: connection.endpoint, token: connection.token },
+    undefined,
+    undefined,
+    { requireWrites: connection.allowWrites },
+  );
   if (!probe.ok) throw new Error(probe.error);
   return {
     settings: {
@@ -89,17 +94,33 @@ export function createSerenityProvider(
 }
 
 /** Bot-scoped entity slug kept inside the adapter (Serenity has no container tags). */
-export function serenityBotEntity(botId: string): string {
-  return `rakazo-bot/${botId}`;
+export function sanitizeSerenityBrainLabel(label: string): string {
+  return label
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 64);
 }
 
-export function serenitySpaceEntity(spaceId: string): string {
-  return `rakazo-space/${spaceId}`;
+export function serenityBotEntity(botId: string, brainLabel = ""): string {
+  const label = sanitizeSerenityBrainLabel(brainLabel);
+  return label ? `rakazo-bot/${label}/${botId}` : `rakazo-bot/${botId}`;
 }
 
-function durableEntities(scope: DurableMemoryScope, botId: string, spaceId: string): string[] {
-  const bot = serenityBotEntity(botId);
-  return scope === "shared" ? [serenitySpaceEntity(spaceId), bot] : [bot];
+export function serenitySpaceEntity(spaceId: string, brainLabel = ""): string {
+  const label = sanitizeSerenityBrainLabel(brainLabel);
+  return label ? `rakazo-space/${label}/${spaceId}` : `rakazo-space/${spaceId}`;
+}
+
+function durableEntities(
+  scope: DurableMemoryScope,
+  botId: string,
+  spaceId: string,
+  brainLabel: string,
+): string[] {
+  const bot = serenityBotEntity(botId, brainLabel);
+  return scope === "shared" ? [serenitySpaceEntity(spaceId, brainLabel), bot] : [bot];
 }
 
 export class SerenityMemoryProvider implements SemanticMemoryProvider {
@@ -129,7 +150,12 @@ export class SerenityMemoryProvider implements SemanticMemoryProvider {
     context: AdapterContext,
   ): Promise<SemanticMemoryResponse<SemanticMemoryResult[]>> {
     // History compaction stays in Rakazo; Serenity is the durable brain only.
-    const entities = durableEntities(request.scope, request.botId, context.spaceId);
+    const entities = durableEntities(
+      request.scope,
+      request.botId,
+      context.spaceId,
+      this.connection.brainLabel,
+    );
     const results = await Promise.all(
       entities.map((entity) =>
         recallSerenity(request.query, this.connection, {
@@ -176,7 +202,12 @@ export class SerenityMemoryProvider implements SemanticMemoryProvider {
           "Serenity writes are disabled for this Space. Enable writing in Memory settings to save durable facts.",
       };
     }
-    const entities = durableEntities(request.scope, request.botId, context.spaceId);
+    const entities = durableEntities(
+      request.scope,
+      request.botId,
+      context.spaceId,
+      this.connection.brainLabel,
+    );
     const provenance = `rakazo space:${context.spaceId} bot:${request.botId}`;
     const results = await Promise.all(
       entities.map((entity) =>

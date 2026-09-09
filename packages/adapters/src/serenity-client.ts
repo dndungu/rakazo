@@ -66,12 +66,15 @@ export function parseSerenityEndpoint(endpoint: string): URL {
 }
 
 export function normalizeSerenityEndpoint(endpoint: string): string {
+  return normalizeSerenityEndpointUrl(endpoint).href.replace(/\/+$/, "");
+}
+
+function normalizeSerenityEndpointUrl(endpoint: string): URL {
   const url = parseSerenityEndpoint(endpoint);
   assertAllowedSerenityEndpoint(url);
   const path = url.pathname.replace(/\/+$/, "") || "";
-  const withMcp = path.endsWith("/mcp") ? path : `${path}/mcp`;
-  url.pathname = withMcp;
-  return url.href.replace(/\/+$/, "");
+  url.pathname = path.endsWith("/mcp") ? path : `${path}/mcp`;
+  return url;
 }
 
 function hostnameOf(url: URL): string {
@@ -88,20 +91,19 @@ export function serenityEndpointRequiresDeploymentOwner(endpoint: string): boole
   return url.protocol === "http:";
 }
 
-function isLoopbackOrPrivateHost(host: string): boolean {
-  if (isLocalMcpHost(host)) return true;
-  return isIP(host) !== 0 && isPrivateAddress(host);
-}
-
 function assertAllowedSerenityEndpoint(url: URL): void {
   const host = hostnameOf(url);
   if (isCloudMetadataAddress(host)) {
     throw new Error("Serenity endpoint targets a blocked address.");
   }
-  if (url.protocol === "http:" && !isLoopbackOrPrivateHost(host)) {
-    throw new Error(
-      "Serenity HTTP endpoints are limited to loopback or private LAN addresses; use HTTPS for public hosts.",
-    );
+  if (url.protocol === "http:") {
+    // Bearer tokens stay on the wire; only loopback may use cleartext HTTP.
+    if (!isLocalMcpHost(host)) {
+      throw new Error(
+        "Serenity HTTP endpoints are limited to loopback (localhost / 127.0.0.1 / ::1); use HTTPS for LAN or public hosts.",
+      );
+    }
+    return;
   }
 }
 
@@ -160,9 +162,7 @@ async function withSerenityClient<T>(
   run: (client: Client, signal: AbortSignal) => Promise<T>,
   network: SerenityNetworkDependencies = {},
 ): Promise<T> {
-  const endpoint = normalizeSerenityEndpoint(config.endpoint);
-  const url = parseSerenityEndpoint(endpoint);
-  assertAllowedSerenityEndpoint(url);
+  const url = normalizeSerenityEndpointUrl(config.endpoint);
   const requestSignal = combineSignals(signal, AbortSignal.timeout(SERENITY_TIMEOUT_MS));
   const path = serenityFetchPath(url);
   const safeRemoteFetch: SafeRemoteFetch | null =
@@ -200,6 +200,7 @@ export async function probeSerenity(
   config: SerenityConnectionConfig,
   signal?: AbortSignal,
   network?: SerenityNetworkDependencies,
+  options: { requireWrites?: boolean } = {},
 ): Promise<SerenityResult<void>> {
   try {
     await withSerenityClient(
@@ -211,9 +212,13 @@ export async function probeSerenity(
           { signal: requestSignal, timeout: SERENITY_TIMEOUT_MS },
         );
         const names = new Set(listed.tools.map((tool) => tool.name));
-        for (const required of ["recall", "remember", "forget"] as const) {
-          if (!names.has(required)) {
-            throw new Error(`Serenity MCP is missing the "${required}" tool.`);
+        const required =
+          options.requireWrites === true
+            ? (["recall", "remember", "forget"] as const)
+            : (["recall"] as const);
+        for (const tool of required) {
+          if (!names.has(tool)) {
+            throw new Error(`Serenity MCP is missing the "${tool}" tool.`);
           }
         }
       },

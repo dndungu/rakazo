@@ -35,8 +35,9 @@ describe("serenity endpoint helpers", () => {
     );
   });
 
-  it("rejects public HTTP endpoints", () => {
-    expect(() => normalizeSerenityEndpoint("http://serenity.example.test/mcp")).toThrow(/HTTPS/);
+  it("rejects public HTTP endpoints and private-LAN cleartext HTTP", () => {
+    expect(() => normalizeSerenityEndpoint("http://serenity.example.test/mcp")).toThrow(/loopback/);
+    expect(() => normalizeSerenityEndpoint("http://192.168.1.10:8787/mcp")).toThrow(/loopback/);
   });
 });
 

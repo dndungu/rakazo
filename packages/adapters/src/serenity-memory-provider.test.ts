@@ -45,11 +45,11 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-function provider(allowWrites = true) {
+function provider(allowWrites = true, brainLabel = "") {
   return new SerenityMemoryProvider({
     endpoint: "http://127.0.0.1:8787/mcp",
     token: "serenity_test_token",
-    brainLabel: "personal",
+    brainLabel,
     allowWrites,
   });
 }
@@ -58,6 +58,10 @@ describe("SerenityMemoryProvider", () => {
   it("keeps bot and space entity namespaces inside the adapter", () => {
     expect(serenityBotEntity("bot-1")).toBe("rakazo-bot/bot-1");
     expect(serenitySpaceEntity("workspace-1")).toBe("rakazo-space/workspace-1");
+    expect(serenityBotEntity("bot-1", "Personal Brain")).toBe("rakazo-bot/personal-brain/bot-1");
+    expect(serenitySpaceEntity("workspace-1", "Personal Brain")).toBe(
+      "rakazo-space/personal-brain/workspace-1",
+    );
   });
 
   it("requires deployment owner for loopback endpoints", () => {
@@ -134,6 +138,34 @@ describe("SerenityMemoryProvider", () => {
     expect(rememberSerenityMock.mock.calls.map((call) => call[3]?.entity)).toEqual([
       "rakazo-space/workspace-1",
       "rakazo-bot/bot-1",
+    ]);
+  });
+
+  it("scopes shared durable saves by brain label when configured", async () => {
+    rememberSerenityMock.mockResolvedValue({
+      ok: true,
+      value: { id: "fact-2", status: "inserted" },
+    });
+
+    const labeled = new SerenityMemoryProvider({
+      endpoint: "http://127.0.0.1:8787/mcp",
+      token: "serenity_test_token",
+      brainLabel: "Personal Brain",
+      allowWrites: true,
+    });
+    await labeled.save(
+      {
+        content: "Use metric units.",
+        scope: "shared",
+        botId: "bot-1",
+        source: { kind: "durable" },
+      },
+      context,
+    );
+
+    expect(rememberSerenityMock.mock.calls.map((call) => call[3]?.entity)).toEqual([
+      "rakazo-space/personal-brain/workspace-1",
+      "rakazo-bot/personal-brain/bot-1",
     ]);
   });
 
