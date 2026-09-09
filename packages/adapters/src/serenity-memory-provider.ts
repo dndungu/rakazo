@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type {
   AdapterContext,
   DurableMemoryScope,
@@ -93,14 +94,19 @@ export function createSerenityProvider(
   return new SerenityMemoryProvider(connection);
 }
 
-/** Bot-scoped entity slug kept inside the adapter (Serenity has no container tags). */
+/**
+ * Bot-scoped entity slug kept inside the adapter (Serenity has no container tags).
+ * Appends a short digest of the case-folded original so labels that sanitize
+ * identically (e.g. "prod brain" vs "prod-brain") stay in separate namespaces.
+ */
 export function sanitizeSerenityBrainLabel(label: string): string {
-  return label
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9._-]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 64);
+  const trimmed = label.trim();
+  if (!trimmed) return "";
+  const lower = trimmed.toLowerCase();
+  const slug = lower.replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
+  if (!slug) return "";
+  const digest = createHash("sha256").update(lower).digest("hex").slice(0, 8);
+  return `${slug.slice(0, 55)}-${digest}`;
 }
 
 export function serenityBotEntity(botId: string, brainLabel = ""): string {

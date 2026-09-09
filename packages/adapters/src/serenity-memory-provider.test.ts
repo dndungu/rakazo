@@ -4,10 +4,14 @@ import {
   createSerenityProvider,
   prepareSerenityConnection,
   SerenityMemoryProvider,
+  sanitizeSerenityBrainLabel,
   serenityBotEntity,
   serenityRequiresDeploymentOwner,
   serenitySpaceEntity,
 } from "./serenity-memory-provider.js";
+
+/** Stable digest suffix for "Personal Brain" (case-folded). */
+const PERSONAL_BRAIN = "personal-brain-7a024bf3";
 
 const context: AdapterContext = {
   operationId: "op-1",
@@ -58,9 +62,20 @@ describe("SerenityMemoryProvider", () => {
   it("keeps bot and space entity namespaces inside the adapter", () => {
     expect(serenityBotEntity("bot-1")).toBe("rakazo-bot/bot-1");
     expect(serenitySpaceEntity("workspace-1")).toBe("rakazo-space/workspace-1");
-    expect(serenityBotEntity("bot-1", "Personal Brain")).toBe("rakazo-bot/personal-brain/bot-1");
+    expect(serenityBotEntity("bot-1", "Personal Brain")).toBe(`rakazo-bot/${PERSONAL_BRAIN}/bot-1`);
     expect(serenitySpaceEntity("workspace-1", "Personal Brain")).toBe(
-      "rakazo-space/personal-brain/workspace-1",
+      `rakazo-space/${PERSONAL_BRAIN}/workspace-1`,
+    );
+  });
+
+  it("isolates labels that sanitize to the same slug", () => {
+    const spaced = sanitizeSerenityBrainLabel("prod brain");
+    const hyphenated = sanitizeSerenityBrainLabel("prod-brain");
+    expect(spaced).toBe("prod-brain-886a332f");
+    expect(hyphenated).toBe("prod-brain-0691dd31");
+    expect(spaced).not.toBe(hyphenated);
+    expect(serenityBotEntity("bot-1", "prod brain")).not.toBe(
+      serenityBotEntity("bot-1", "prod-brain"),
     );
   });
 
@@ -164,8 +179,8 @@ describe("SerenityMemoryProvider", () => {
     );
 
     expect(rememberSerenityMock.mock.calls.map((call) => call[3]?.entity)).toEqual([
-      "rakazo-space/personal-brain/workspace-1",
-      "rakazo-bot/personal-brain/bot-1",
+      `rakazo-space/${PERSONAL_BRAIN}/workspace-1`,
+      `rakazo-bot/${PERSONAL_BRAIN}/bot-1`,
     ]);
   });
 
@@ -187,7 +202,7 @@ describe("SerenityMemoryProvider", () => {
       expect.objectContaining({ brainLabel: "Personal Brain" }),
       expect.objectContaining({
         reason: "cleanup",
-        entity: "rakazo-bot/personal-brain/bot-1",
+        entity: `rakazo-bot/${PERSONAL_BRAIN}/bot-1`,
       }),
     );
 
