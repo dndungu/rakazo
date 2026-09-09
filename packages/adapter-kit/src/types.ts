@@ -285,6 +285,15 @@ export interface SemanticMemoryResult {
   memory: string;
   score: number;
   updatedAt?: string;
+  /** Stable provider id when the backend supports citation / forget. */
+  id?: string;
+  /** Attribution string preserved from the memory backend. */
+  provenance?: string;
+}
+
+export interface SemanticMemoryForgetRequest {
+  id: string;
+  reason?: string;
 }
 
 export type SemanticMemoryResponse<T = void> =
@@ -311,6 +320,12 @@ export interface SemanticMemoryPurgeHistoryRequest {
   botId: string;
   generations: number[];
 }
+
+export type SemanticMemoryForgetResponse = SemanticMemoryResponse<{
+  id: string;
+  expired: boolean;
+  reason: string | null;
+}>;
 
 export interface AgentInputImage {
   name: string;

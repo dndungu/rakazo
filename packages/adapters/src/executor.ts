@@ -2717,6 +2717,24 @@ export function createRunExecutor(deps: ExecutorDeps) {
               ),
             );
           }
+          if (name === "forget_memory") {
+            if (!semanticMemory?.forget) {
+              return finish({
+                error: "This memory provider does not support forgetting individual facts.",
+              });
+            }
+            return finish(
+              await semanticMemory.forget(
+                {
+                  id: String(args.id ?? ""),
+                  ...(typeof args.reason === "string" && args.reason.trim()
+                    ? { reason: args.reason.trim() }
+                    : {}),
+                },
+                context,
+              ),
+            );
+          }
           if (name === "list_secrets") return listBotSecrets(deps.prisma, run);
           if (name === "forget_secret") {
             const parsed = BotSecretName.safeParse(args.name);
@@ -4157,7 +4175,7 @@ export function selectBuiltinToolsForRun(options: {
   ).filter(
     (tool) =>
       !options.messagingChannelRun ||
-      (!["remember", "save_memory", "recall_memory"].includes(tool.name) &&
+      (!["remember", "save_memory", "recall_memory", "forget_memory"].includes(tool.name) &&
         !tool.name.startsWith("scratchpad_")),
   );
 }

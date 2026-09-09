@@ -490,6 +490,19 @@ export const builtinAgentTools: ConnectorTool[] = [
     },
   },
   {
+    name: "forget_memory",
+    description:
+      "Forget a durable semantic memory by id (from recall citations). Providers without forget support return an error.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Memory id from a prior recall citation." },
+        reason: { type: "string", description: "Optional reason recorded with the forget." },
+      },
+      required: ["id"],
+    },
+  },
+  {
     name: "scratchpad_list",
     description:
       "List this bot's scratchpad / open-work items (todos and parked work). By default omits completed items.",

@@ -2,6 +2,12 @@ import type { DurableMemoryScope, SemanticMemoryProvider } from "@rakazo/adapter
 import type { PrismaClient } from "@rakazo/db";
 import type { EncryptedSecretStore } from "./secrets.js";
 import {
+  createSerenityProvider,
+  prepareSerenityConnection,
+  SERENITY_PROVIDER_ID,
+  serenityRequiresDeploymentOwner,
+} from "./serenity-memory-provider.js";
+import {
   createSupermemoryProvider,
   decodeLegacySupermemoryCredentials,
   prepareSupermemoryConnection,
@@ -51,6 +57,14 @@ const MEMORY_PROVIDER_ADAPTERS: ReadonlyMap<string, MemoryProviderAdapter> = new
       prepare: prepareSupermemoryConnection,
       create: createSupermemoryProvider,
       decodeLegacyCredentials: decodeLegacySupermemoryCredentials,
+    },
+  ],
+  [
+    SERENITY_PROVIDER_ID,
+    {
+      requiresDeploymentOwner: serenityRequiresDeploymentOwner,
+      prepare: prepareSerenityConnection,
+      create: createSerenityProvider,
     },
   ],
 ]);
