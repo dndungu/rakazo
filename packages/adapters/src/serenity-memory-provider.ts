@@ -10,7 +10,6 @@ import type {
   SemanticMemorySaveRequest,
 } from "@rakazo/adapter-kit";
 import {
-  classifySerenityEndpointTrust,
   forgetSerenity,
   normalizeSerenityEndpoint,
   parseSerenityEndpoint,
@@ -18,7 +17,6 @@ import {
   recallSerenity,
   rememberSerenity,
   type SerenityConnectionConfig,
-  type SerenityNetworkDependencies,
   serenityEndpointRequiresDeploymentOwner,
 } from "./serenity-client.js";
 
@@ -48,18 +46,15 @@ function parseSerenityConnection(
   parseSerenityEndpoint(endpoint);
   const token = requiredValue(credentials, "token");
   if (token.length < 8) throw new Error("token must contain at least 8 characters");
-  const endpointTrust = settings.endpointTrust === "private" ? "private" : "public";
   return {
     endpoint,
     token,
-    endpointTrust,
     brainLabel: settings.brainLabel?.trim() ?? "",
     allowWrites: parseBooleanSetting(settings.allowWrites, false),
   };
 }
 
 export function serenityRequiresDeploymentOwner(settings: Record<string, string>): boolean {
-  if (settings.endpointTrust === "private") return true;
   const endpoint = settings.endpoint?.trim();
   if (!endpoint) return false;
   try {
@@ -72,17 +67,12 @@ export function serenityRequiresDeploymentOwner(settings: Record<string, string>
 export async function prepareSerenityConnection(
   settings: Record<string, string>,
   credentials: Record<string, string>,
-  network?: SerenityNetworkDependencies,
 ): Promise<{ settings: Record<string, string>; credentials: Record<string, string> }> {
   const connection = parseSerenityConnection(settings, credentials);
-  const endpointTrust = await classifySerenityEndpointTrust(
-    connection.endpoint,
-    network?.resolveHostname,
-  );
   const probe = await probeSerenity(
-    { endpoint: connection.endpoint, token: connection.token, endpointTrust },
+    { endpoint: connection.endpoint, token: connection.token },
     undefined,
-    network,
+    undefined,
     { requireWrites: connection.allowWrites },
   );
   if (!probe.ok) throw new Error(probe.error);
@@ -90,7 +80,6 @@ export async function prepareSerenityConnection(
     settings: {
       endpoint: connection.endpoint,
       allowWrites: connection.allowWrites ? "true" : "false",
-      ...(endpointTrust === "private" ? { endpointTrust: "private" } : {}),
       ...(connection.brainLabel ? { brainLabel: connection.brainLabel } : {}),
     },
     credentials: { token: connection.token },
