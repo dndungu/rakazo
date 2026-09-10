@@ -1,5 +1,5 @@
-import type { PrismaClient } from "@rakazo/db";
 import { MemoryProviderDeploymentOwnerRequiredError } from "@rakazo/adapters";
+import type { PrismaClient } from "@rakazo/db";
 import { describe, expect, it, vi } from "vitest";
 import {
   disconnectMemoryProvider,
@@ -330,7 +330,6 @@ describe("persistMemoryProviderConfig", () => {
     );
     expect(transaction).not.toHaveBeenCalled();
   });
-
 });
 
 describe("disconnectMemoryProvider", () => {

@@ -1,8 +1,8 @@
 import type { AdapterContext } from "@rakazo/adapter-kit";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  createSerenityProvider,
   classifySerenityConnectionSettings,
+  createSerenityProvider,
   MemoryProviderDeploymentOwnerRequiredError,
   prepareSerenityConnection,
   SerenityMemoryProvider,
@@ -97,7 +97,7 @@ describe("SerenityMemoryProvider", () => {
     ).toBe(true);
   });
 
-    it("classifies private LAN DNS without probing", async () => {
+  it("classifies private LAN DNS without probing", async () => {
     const classified = await classifySerenityConnectionSettings(
       { endpoint: "https://serenity.example.test/mcp", allowWrites: "false" },
       {
@@ -109,7 +109,7 @@ describe("SerenityMemoryProvider", () => {
     expect(probeSerenityMock).not.toHaveBeenCalled();
   });
 
-it("refuses private endpoints before probing when allowPrivateEndpoint is false", async () => {
+  it("refuses private endpoints before probing when allowPrivateEndpoint is false", async () => {
     await expect(
       prepareSerenityConnection(
         { endpoint: "https://serenity.example.test/mcp", allowWrites: "false" },

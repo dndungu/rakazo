@@ -163,7 +163,8 @@ describe("serenity SSRF fetch path", () => {
     expect(resolveCalls).toBe(1);
     expect(fetchMock).toHaveBeenCalled();
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error).toMatch(/pinned-first-answer-fetch-reached|Could not reach/);
+    if (!result.ok)
+      expect(result.error).toMatch(/pinned-first-answer-fetch-reached|Could not reach/);
   });
 
   it("pins private-trust HTTPS hostnames and rejects public rebinding", async () => {

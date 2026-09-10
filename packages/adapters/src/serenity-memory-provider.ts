@@ -33,7 +33,6 @@ export class MemoryProviderDeploymentOwnerRequiredError extends Error {
   }
 }
 
-
 function requiredValue(values: Record<string, string>, key: string): string {
   const value = values[key]?.trim();
   if (!value) throw new Error(`${key} is required`);
@@ -105,10 +104,7 @@ export async function prepareSerenityConnection(
   const classifiedSettings = await classifySerenityConnectionSettings(settings, network);
   // Reclassification can flip public→private between the API owner check and this probe.
   // Non-owners must fail closed here before any credentialed MCP request.
-  if (
-    classifiedSettings.endpointTrust === "private" &&
-    options?.allowPrivateEndpoint === false
-  ) {
+  if (classifiedSettings.endpointTrust === "private" && options?.allowPrivateEndpoint === false) {
     throw new MemoryProviderDeploymentOwnerRequiredError();
   }
   const connection = parseSerenityConnection(classifiedSettings, credentials);

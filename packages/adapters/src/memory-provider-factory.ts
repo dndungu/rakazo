@@ -10,6 +10,7 @@ import {
 } from "./serenity-memory-provider.js";
 
 export { MemoryProviderDeploymentOwnerRequiredError } from "./serenity-memory-provider.js";
+
 import {
   createSupermemoryProvider,
   decodeLegacySupermemoryCredentials,
