@@ -134,6 +134,7 @@ export function createRepos(prisma: PrismaClient) {
         notifyOnFinish: true,
         pinned: true,
         sectionId: true,
+        parentBotId: true,
         updatedAt: true,
         thread: {
           select: {
@@ -161,6 +162,7 @@ export function createRepos(prisma: PrismaClient) {
         pinned: bot.pinned,
         sectionId: bot.sectionId,
         unread: bot.thread.unread,
+        parentBotId: bot.parentBotId,
         preview: previewFromBlocks(bot.thread.messages[0]?.blocks),
         status: bot.runs[0]?.status ?? "idle",
         updatedAt: bot.updatedAt.toISOString(),

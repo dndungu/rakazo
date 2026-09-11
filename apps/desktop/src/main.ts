@@ -484,7 +484,17 @@ async function waitForMountedAppDocument(contents: Electron.WebContents) {
             '[aria-label="Model"], [aria-label="Model id"], [aria-label="Models from server"]',
           ),
       );
-      const surfaceReady = shellBootstrapped || authOrWelcomeSurface;
+      // A session restored from a saved cookie lands directly on an authenticated
+      // /app/<id> route without ever flipping shell-root's data-ready or firing
+      // rk:renderer:shell-ready -- those only fire along the fresh-sign-in
+      // transition. Treat real authenticated-app content as its own readiness
+      // signal so a returning session isn't bounced back to setup on every launch.
+      const authenticatedAppSurface = Boolean(
+        document.querySelector(
+          '[data-testid="composer-bar"], [data-testid="transcript"], [data-testid="bots-sidebar"]',
+        ),
+      );
+      const surfaceReady = shellBootstrapped || authOrWelcomeSurface || authenticatedAppSurface;
       const sessionReady =
         appState === "ready" ||
         performance.getEntriesByName("rk:renderer:session-committed").length > 0;

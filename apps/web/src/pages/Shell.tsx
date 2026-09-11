@@ -46,6 +46,7 @@ import {
   isToolActivityBlock,
   latestAnswerableAskMessageId,
   mentionChipKey,
+  nestRosterByParent,
   projectMessageReactions,
   reorderBotTo,
   resolveComposerSendPlan,
@@ -296,8 +297,12 @@ function collapsedSidebarSectionsStorageKey(userId: string | null | undefined): 
   return `rakazo:collapsed-sidebar-sections:${userId}`;
 }
 
-function readCollapsedSidebarSections(userId: string | null | undefined): Set<string> {
-  const storageKey = collapsedSidebarSectionsStorageKey(userId);
+function collapsedRosterParentsStorageKey(userId: string | null | undefined): string | null {
+  if (!userId) return null;
+  return `rakazo:collapsed-roster-parents:${userId}`;
+}
+
+function readCollapsedIdSet(storageKey: string | null): Set<string> {
   if (!storageKey) return new Set();
   try {
     const value = window.localStorage.getItem(storageKey);
@@ -308,6 +313,14 @@ function readCollapsedSidebarSections(userId: string | null | undefined): Set<st
   } catch {
     return new Set();
   }
+}
+
+function readCollapsedSidebarSections(userId: string | null | undefined): Set<string> {
+  return readCollapsedIdSet(collapsedSidebarSectionsStorageKey(userId));
+}
+
+function readCollapsedRosterParents(userId: string | null | undefined): Set<string> {
+  return readCollapsedIdSet(collapsedRosterParentsStorageKey(userId));
 }
 
 export function ShellPage() {
@@ -335,9 +348,11 @@ export function ShellPage() {
   const [archivedGroups, setArchivedGroups] = useState<Group[]>([]);
   const [archivedOpen, setArchivedOpen] = useState(false);
   const [collapsedSidebarSections, setCollapsedSidebarSections] = useState(() => new Set<string>());
+  const [collapsedRosterParents, setCollapsedRosterParents] = useState(() => new Set<string>());
 
   useEffect(() => {
     setCollapsedSidebarSections(readCollapsedSidebarSections(userId));
+    setCollapsedRosterParents(readCollapsedRosterParents(userId));
   }, [userId]);
   useEffect(() => {
     setBotsSidebarCollapsed(readBotsSidebarCollapsed(userId));
@@ -1341,7 +1356,13 @@ export function ShellPage() {
         [
           ...visibleBots.map((chat) => ({ kind: "bot" as const, chat })),
           ...visibleGroups.map((chat) => ({ kind: "group" as const, chat })),
-        ].map((item) => ({ ...item, pinned: item.chat.pinned, sectionId: item.chat.sectionId })),
+        ].map((item) => ({
+          ...item,
+          id: item.chat.id,
+          parentBotId: item.kind === "bot" ? item.chat.parentBotId : null,
+          pinned: item.chat.pinned,
+          sectionId: item.chat.sectionId,
+        })),
         space.botSections,
       ).map((group, index) => ({
         ...group,
@@ -1442,6 +1463,25 @@ export function ShellPage() {
         if (next.has(key)) next.delete(key);
         else next.add(key);
         const storageKey = collapsedSidebarSectionsStorageKey(userId);
+        if (storageKey) {
+          try {
+            window.localStorage.setItem(storageKey, JSON.stringify([...next]));
+          } catch {
+            // Keep the UI usable when storage is unavailable.
+          }
+        }
+        return next;
+      });
+    },
+    [userId],
+  );
+  const toggleRosterParent = useCallback(
+    (botId: string) => {
+      setCollapsedRosterParents((previous) => {
+        const next = new Set(previous);
+        if (next.has(botId)) next.delete(botId);
+        else next.add(botId);
+        const storageKey = collapsedRosterParentsStorageKey(userId);
         if (storageKey) {
           try {
             window.localStorage.setItem(storageKey, JSON.stringify([...next]));
@@ -2719,166 +2759,226 @@ export function ShellPage() {
                       </div>
                     ) : null}
                     {!collapsed &&
-                      group.bots.map((item) => (
-                        <button
-                          key={`${item.kind}:${item.chat.id}`}
-                          type="button"
-                          draggable={item.kind === "bot"}
-                          data-roster-bot-id={item.kind === "bot" ? item.chat.id : undefined}
-                          aria-keyshortcuts={
-                            item.kind === "bot" ? "Alt+ArrowUp Alt+ArrowDown" : undefined
-                          }
-                          onDragStart={(event) => {
-                            if (item.kind !== "bot") return;
-                            setDraggedBotId(item.chat.id);
-                            event.dataTransfer.effectAllowed = "move";
-                            event.dataTransfer.setData("text/plain", item.chat.id);
-                          }}
-                          onDragOver={(event) => {
-                            if (
-                              item.kind === "bot" &&
-                              draggedBotId &&
-                              groupBotIds.includes(draggedBotId)
-                            ) {
-                              event.preventDefault();
-                              event.dataTransfer.dropEffect = "move";
-                            }
-                          }}
-                          onDrop={(event) => {
-                            if (item.kind !== "bot" || !draggedBotId) return;
-                            event.preventDefault();
-                            reorderRosterBot(draggedBotId, item.chat.id, groupBotIds);
-                            setDraggedBotId(null);
-                          }}
-                          onDragEnd={() => setDraggedBotId(null)}
-                          onKeyDown={(event) => {
-                            if (
-                              item.kind !== "bot" ||
-                              !event.altKey ||
-                              (event.key !== "ArrowUp" && event.key !== "ArrowDown")
-                            )
-                              return;
-                            const index = groupBotIds.indexOf(item.chat.id);
-                            const target = groupBotIds[index + (event.key === "ArrowUp" ? -1 : 1)];
-                            if (!target) return;
-                            event.preventDefault();
-                            reorderRosterBot(item.chat.id, target, groupBotIds);
-                          }}
-                          onClick={() => {
-                            openSpaceChat(
-                              item.chat.spaceId,
-                              item.kind === "bot"
-                                ? `/app/${item.chat.id}`
-                                : `/app/g/${item.chat.id}`,
-                            );
-                          }}
-                          onContextMenu={(event) => {
-                            if (item.chat.spaceId !== bootstrapMe?.spaceId) return;
-                            event.preventDefault();
-                            botMenuAnchor.current = event.currentTarget;
-                            setBotMenu({
-                              kind: item.kind,
-                              id: item.chat.id,
-                              position: { x: event.clientX, y: event.clientY },
-                            });
-                          }}
-                          className={`flex w-full gap-3 rounded-xl px-2.5 py-[11px] text-start ${
-                            item.kind === "bot" ? "cursor-grab active:cursor-grabbing" : ""
-                          } ${
+                      (() => {
+                        const nestedRows = nestRosterByParent(
+                          group.bots,
+                          collapsedRosterParents,
+                        );
+                        const treeActive = nestedRows.some(
+                          (row) => row.depth > 0 || row.hasChildren,
+                        );
+                        return nestedRows.map(({ item, depth, hasChildren }) => {
+                          const parentCollapsed =
+                            hasChildren && collapsedRosterParents.has(item.chat.id);
+                          const selected =
                             (item.kind === "bot" && !inGroup && active?.id === item.chat.id) ||
-                            (item.kind === "group" && inGroup && activeGroup?.id === item.chat.id)
-                              ? "bg-sidebar-accent"
-                              : "hover:bg-sidebar-accent"
-                          }`}
-                          style={{
-                            opacity:
-                              item.kind === "bot" && draggedBotId === item.chat.id ? 0.55 : 1,
-                          }}
-                        >
-                          {item.kind === "bot" ? (
-                            <BotAvatar
-                              color={item.chat.color}
-                              identity={item.chat.id}
-                              size={38}
-                              status={item.chat.status}
-                            />
-                          ) : (
-                            <GroupAvatar
-                              members={
-                                item.chat.id === activeSnapshot?.groupId
-                                  ? (activeSnapshot.members ?? item.chat.members)
-                                  : item.chat.members
-                              }
-                              size={38}
-                            />
-                          )}
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-baseline justify-between gap-2">
-                              <span
-                                dir="auto"
-                                data-roster-bot-name={item.kind === "bot" ? "" : undefined}
-                                className={`truncate text-[15px] text-foreground ${
-                                  item.chat.unread ? "font-semibold" : "font-medium"
+                            (item.kind === "group" &&
+                              inGroup &&
+                              activeGroup?.id === item.chat.id);
+                          return (
+                            <div
+                              key={`${item.kind}:${item.chat.id}`}
+                              className={`flex w-full items-stretch rounded-xl ${
+                                selected ? "bg-sidebar-accent" : "hover:bg-sidebar-accent"
+                              }`}
+                              style={{
+                                opacity:
+                                  item.kind === "bot" && draggedBotId === item.chat.id
+                                    ? 0.55
+                                    : 1,
+                                paddingInlineStart: treeActive
+                                  ? `${10 + depth * 14}px`
+                                  : undefined,
+                              }}
+                            >
+                              {treeActive ? (
+                                <span className="flex w-3.5 shrink-0 items-center justify-center self-start pt-[18px]">
+                                  {hasChildren ? (
+                                    <button
+                                      type="button"
+                                      aria-expanded={!parentCollapsed}
+                                      aria-label={
+                                        parentCollapsed
+                                          ? t`Expand ${item.chat.name}`
+                                          : t`Collapse ${item.chat.name}`
+                                      }
+                                      className="inline-flex size-3.5 items-center justify-center rounded-sm text-muted-foreground hover:text-foreground"
+                                      onClick={() => toggleRosterParent(item.chat.id)}
+                                    >
+                                      <ChevronDown
+                                        size={12}
+                                        strokeWidth={2}
+                                        className={
+                                          parentCollapsed
+                                            ? "-rotate-90 transition-transform"
+                                            : "transition-transform"
+                                        }
+                                        aria-hidden="true"
+                                      />
+                                    </button>
+                                  ) : null}
+                                </span>
+                              ) : null}
+                              <button
+                                type="button"
+                                draggable={item.kind === "bot"}
+                                data-roster-bot-id={item.kind === "bot" ? item.chat.id : undefined}
+                                data-roster-depth={
+                                  item.kind === "bot" && treeActive ? depth : undefined
+                                }
+                                aria-keyshortcuts={
+                                  item.kind === "bot" ? "Alt+ArrowUp Alt+ArrowDown" : undefined
+                                }
+                                onDragStart={(event) => {
+                                  if (item.kind !== "bot") return;
+                                  setDraggedBotId(item.chat.id);
+                                  event.dataTransfer.effectAllowed = "move";
+                                  event.dataTransfer.setData("text/plain", item.chat.id);
+                                }}
+                                onDragOver={(event) => {
+                                  if (
+                                    item.kind === "bot" &&
+                                    draggedBotId &&
+                                    groupBotIds.includes(draggedBotId)
+                                  ) {
+                                    event.preventDefault();
+                                    event.dataTransfer.dropEffect = "move";
+                                  }
+                                }}
+                                onDrop={(event) => {
+                                  if (item.kind !== "bot" || !draggedBotId) return;
+                                  event.preventDefault();
+                                  reorderRosterBot(draggedBotId, item.chat.id, groupBotIds);
+                                  setDraggedBotId(null);
+                                }}
+                                onDragEnd={() => setDraggedBotId(null)}
+                                onKeyDown={(event) => {
+                                  if (
+                                    item.kind !== "bot" ||
+                                    !event.altKey ||
+                                    (event.key !== "ArrowUp" && event.key !== "ArrowDown")
+                                  )
+                                    return;
+                                  const index = groupBotIds.indexOf(item.chat.id);
+                                  const target =
+                                    groupBotIds[index + (event.key === "ArrowUp" ? -1 : 1)];
+                                  if (!target) return;
+                                  event.preventDefault();
+                                  reorderRosterBot(item.chat.id, target, groupBotIds);
+                                }}
+                                onClick={() => {
+                                  openSpaceChat(
+                                    item.chat.spaceId,
+                                    item.kind === "bot"
+                                      ? `/app/${item.chat.id}`
+                                      : `/app/g/${item.chat.id}`,
+                                  );
+                                }}
+                                onContextMenu={(event) => {
+                                  if (item.chat.spaceId !== bootstrapMe?.spaceId) return;
+                                  event.preventDefault();
+                                  botMenuAnchor.current = event.currentTarget;
+                                  setBotMenu({
+                                    kind: item.kind,
+                                    id: item.chat.id,
+                                    position: { x: event.clientX, y: event.clientY },
+                                  });
+                                }}
+                                className={`flex min-w-0 flex-1 gap-3 py-[11px] text-start ${
+                                  treeActive ? "pe-2.5" : "px-2.5"
+                                } ${
+                                  item.kind === "bot" ? "cursor-grab active:cursor-grabbing" : ""
                                 }`}
                               >
-                                {item.chat.name}
-                                {item.chat.unread ? (
-                                  <span className="sr-only">
-                                    <Trans> (unread)</Trans>
-                                  </span>
-                                ) : null}
-                              </span>
-                              <span className="flex shrink-0 items-center gap-1.5 text-[12.5px] text-muted-foreground/80">
-                                {item.kind === "bot" && item.chat.status !== "idle"
-                                  ? item.chat.status
-                                  : ""}
-                                {item.chat.unread ? (
-                                  <span
-                                    aria-hidden="true"
-                                    className="inline-block h-2 w-2 rounded-full bg-foreground"
+                                {item.kind === "bot" ? (
+                                  <BotAvatar
+                                    color={item.chat.color}
+                                    identity={item.chat.id}
+                                    size={38}
+                                    status={item.chat.status}
                                   />
-                                ) : null}
-                              </span>
-                            </div>
-                            {item.kind === "bot" && item.chat.title ? (
-                              <>
-                                <div
-                                  dir="auto"
-                                  className={`mt-0.5 truncate text-[13.5px] ${
-                                    item.chat.unread
-                                      ? "font-medium text-foreground/75"
-                                      : "text-muted-foreground"
-                                  }`}
-                                >
-                                  {item.chat.title}
-                                </div>
-                                {item.chat.preview ? (
-                                  <div
-                                    dir="auto"
-                                    className="truncate text-[12.5px] text-muted-foreground/80"
-                                  >
-                                    {item.chat.preview}
+                                ) : (
+                                  <GroupAvatar
+                                    members={
+                                      item.chat.id === activeSnapshot?.groupId
+                                        ? (activeSnapshot.members ?? item.chat.members)
+                                        : item.chat.members
+                                    }
+                                    size={38}
+                                  />
+                                )}
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-baseline justify-between gap-2">
+                                    <span
+                                      dir="auto"
+                                      data-roster-bot-name={item.kind === "bot" ? "" : undefined}
+                                      className={`truncate text-[15px] text-foreground ${
+                                        item.chat.unread ? "font-semibold" : "font-medium"
+                                      }`}
+                                    >
+                                      {item.chat.name}
+                                      {item.chat.unread ? (
+                                        <span className="sr-only">
+                                          <Trans> (unread)</Trans>
+                                        </span>
+                                      ) : null}
+                                    </span>
+                                    <span className="flex shrink-0 items-center gap-1.5 text-[12.5px] text-muted-foreground/80">
+                                      {item.kind === "bot" && item.chat.status !== "idle"
+                                        ? item.chat.status
+                                        : ""}
+                                      {item.chat.unread ? (
+                                        <span
+                                          aria-hidden="true"
+                                          className="inline-block h-2 w-2 rounded-full bg-foreground"
+                                        />
+                                      ) : null}
+                                    </span>
                                   </div>
-                                ) : null}
-                              </>
-                            ) : (
-                              <div
-                                dir="auto"
-                                className={`mt-0.5 truncate text-[13.5px] ${
-                                  item.chat.unread
-                                    ? "font-medium text-foreground/75"
-                                    : "text-muted-foreground"
-                                }`}
-                              >
-                                {item.kind === "bot"
-                                  ? item.chat.preview
-                                  : item.chat.preview ||
-                                    item.chat.members.map((member) => member.name).join(", ")}
-                              </div>
-                            )}
-                          </div>
-                        </button>
-                      ))}
+                                  {item.kind === "bot" && item.chat.title ? (
+                                    <>
+                                      <div
+                                        dir="auto"
+                                        className={`mt-0.5 truncate text-[13.5px] ${
+                                          item.chat.unread
+                                            ? "font-medium text-foreground/75"
+                                            : "text-muted-foreground"
+                                        }`}
+                                      >
+                                        {item.chat.title}
+                                      </div>
+                                      {item.chat.preview ? (
+                                        <div
+                                          dir="auto"
+                                          className="truncate text-[12.5px] text-muted-foreground/80"
+                                        >
+                                          {item.chat.preview}
+                                        </div>
+                                      ) : null}
+                                    </>
+                                  ) : (
+                                    <div
+                                      dir="auto"
+                                      className={`mt-0.5 truncate text-[13.5px] ${
+                                        item.chat.unread
+                                          ? "font-medium text-foreground/75"
+                                          : "text-muted-foreground"
+                                      }`}
+                                    >
+                                      {item.kind === "bot"
+                                        ? item.chat.preview
+                                        : item.chat.preview ||
+                                          item.chat.members
+                                            .map((member) => member.name)
+                                            .join(", ")}
+                                    </div>
+                                  )}
+                                </div>
+                              </button>
+                            </div>
+                          );
+                        });
+                      })()}
                   </div>
                 );
               })}

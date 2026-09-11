@@ -308,6 +308,7 @@ describe("createRepos.listSpaceBotsForSpaces", () => {
         notifyOnFinish: false,
         pinned: true,
         sectionId: null,
+        parentBotId: "bot-1",
         updatedAt: new Date("2026-08-20T00:00:00.000Z"),
         thread: {
           unread: true,
@@ -329,6 +330,7 @@ describe("createRepos.listSpaceBotsForSpaces", () => {
         pinned: true,
         sectionId: null,
         unread: true,
+        parentBotId: "bot-1",
         preview: "Waiting for a reply",
         status: "running",
         updatedAt: "2026-08-20T00:00:00.000Z",
