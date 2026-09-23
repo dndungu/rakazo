@@ -3,7 +3,7 @@ import { Button, Field, FieldLabel, Input, Toggle } from "@rakazo/ui-web";
 import { useId, useState } from "react";
 import type { MemoryProviderConnectionDraft, MemoryProviderSettingsFormProps } from "./registry";
 
-const DEFAULT_ENDPOINT = "http://127.0.0.1:8787/mcp";
+const DEFAULT_ENDPOINT = "https://serenity.sire.run/mcp";
 
 export function SerenitySettingsForm({ busy, onConnect }: MemoryProviderSettingsFormProps) {
   const endpointId = useId();
@@ -52,7 +52,7 @@ export function SerenitySettingsForm({ busy, onConnect }: MemoryProviderSettings
           value={token}
           disabled={busy}
           onChange={(event) => setToken(event.target.value)}
-          placeholder="serenity…"
+          placeholder="sk_live_…"
           type="password"
           autoComplete="new-password"
         />

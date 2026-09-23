@@ -1,9 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   classifySerenityEndpointTrust,
+  MAX_SERENITY_FACT_BYTES,
   normalizeSerenityEndpoint,
   parseSerenityEndpoint,
   probeSerenity,
+  recallSerenity,
+  rememberSerenity,
   serenityEndpointRequiresDeploymentOwner,
 } from "./serenity-client.js";
 
@@ -267,5 +270,105 @@ describe("serenity SSRF fetch path", () => {
     expect(fetchMock).toHaveBeenCalled();
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toMatch(/private-lan-fetch-reached/);
+  });
+});
+
+type JsonRpcRequest = { id?: number; method: string; params?: { arguments?: unknown } };
+
+/** Minimal Streamable HTTP MCP server over the fetch seam; `toolResult` answers tools/call. */
+function fakeSerenityFetch(toolResult: (args: unknown) => unknown) {
+  const calls: { method: string; rpc?: JsonRpcRequest }[] = [];
+  const fetch = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
+    const method = init?.method ?? "GET";
+    if (method !== "POST") {
+      calls.push({ method });
+      return new Response(null, { status: method === "DELETE" ? 200 : 405 });
+    }
+    const rpc = JSON.parse(String(init?.body)) as JsonRpcRequest;
+    calls.push({ method, rpc });
+    const headers = { "content-type": "application/json", "mcp-session-id": "session-1" };
+    if (rpc.id === undefined) return new Response(null, { status: 202, headers });
+    const result =
+      rpc.method === "initialize"
+        ? {
+            protocolVersion: "2025-06-18",
+            capabilities: { tools: {} },
+            serverInfo: { name: "serenity", version: "test" },
+          }
+        : toolResult(rpc.params?.arguments);
+    return new Response(JSON.stringify({ jsonrpc: "2.0", id: rpc.id, result }), { headers });
+  });
+  return { fetch, calls };
+}
+
+const LOOPBACK = { endpoint: "http://127.0.0.1:8787/mcp", token: TOKEN };
+
+describe("serenity verbs", () => {
+  it("sends the operation key with remember and ends the MCP session", async () => {
+    const server = fakeSerenityFetch(() => ({
+      content: [{ type: "text", text: JSON.stringify({ id: "fact-1", status: "inserted" }) }],
+    }));
+    const result = await rememberSerenity("Use metric units.", "rakazo", LOOPBACK, {
+      entity: "rakazo-bot/bot-1",
+      operationKey: "rakazo:abc",
+      network: { fetch: server.fetch },
+    });
+    expect(result).toEqual({ ok: true, value: { id: "fact-1", status: "inserted" } });
+    const call = server.calls.find((entry) => entry.rpc?.method === "tools/call");
+    expect(call?.rpc?.params?.arguments).toMatchObject({
+      entity: "rakazo-bot/bot-1",
+      operation_key: "rakazo:abc",
+    });
+    expect(server.calls.at(-1)?.method).toBe("DELETE");
+  });
+
+  it("rejects facts over the hosted byte limit before connecting", async () => {
+    const server = fakeSerenityFetch(() => ({}));
+    const result = await rememberSerenity(
+      "é".repeat(MAX_SERENITY_FACT_BYTES / 2 + 1),
+      "rakazo",
+      LOOPBACK,
+      { network: { fetch: server.fetch } },
+    );
+    expect(result).toEqual({
+      ok: false,
+      error: `fact exceeds ${MAX_SERENITY_FACT_BYTES} bytes; save a shorter fact`,
+    });
+    expect(server.fetch).not.toHaveBeenCalled();
+  });
+
+  it("states a tool error code once and keeps its reset time", async () => {
+    const server = fakeSerenityFetch(() => ({
+      isError: true,
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            error: "limit_exceeded",
+            message: "limit_exceeded",
+            suggestion: "Upgrade your plan.",
+            reset_at: "2026-10-01T00:00:00Z",
+          }),
+        },
+      ],
+    }));
+    const result = await recallSerenity("units", LOOPBACK, {
+      limit: 5,
+      network: { fetch: server.fetch },
+    });
+    expect(result).toEqual({
+      ok: false,
+      error:
+        "Serenity recall failed: limit_exceeded Upgrade your plan. Resets at 2026-10-01T00:00:00Z.",
+    });
+  });
+
+  it("reports gateway rate limits with the retry delay", async () => {
+    const fetch = vi.fn(
+      async () => new Response("slow down", { status: 429, headers: { "retry-after": "30" } }),
+    );
+    const result = await recallSerenity("units", LOOPBACK, { limit: 5, network: { fetch } });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toMatch(/rate limit reached; retry after 30s/);
   });
 });
