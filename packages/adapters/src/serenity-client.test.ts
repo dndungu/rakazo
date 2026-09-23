@@ -371,4 +371,34 @@ describe("serenity verbs", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toMatch(/rate limit reached; retry after 30s/);
   });
+
+  it("keeps an HTTP-date Retry-After as a date", async () => {
+    const date = "Wed, 23 Sep 2026 23:40:00 GMT";
+    const fetch = vi.fn(
+      async () => new Response("slow down", { status: 429, headers: { "retry-after": date } }),
+    );
+    const result = await recallSerenity("units", LOOPBACK, { limit: 5, network: { fetch } });
+    if (!result.ok) expect(result.error).toContain(`retry after ${date}.`);
+    expect(result.ok).toBe(false);
+  });
+
+  it("returns even when the server stalls the session DELETE", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const server = fakeSerenityFetch(() => ({
+        content: [{ type: "text", text: JSON.stringify({ facts: [] }) }],
+      }));
+      const stalling = vi.fn(async (input: string | URL | Request, init?: RequestInit) =>
+        init?.method === "DELETE" ? new Promise<Response>(() => {}) : server.fetch(input, init),
+      );
+      const pending = recallSerenity("units", LOOPBACK, {
+        limit: 5,
+        network: { fetch: stalling },
+      });
+      await vi.advanceTimersByTimeAsync(2_000);
+      await expect(pending).resolves.toEqual({ ok: true, value: [] });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

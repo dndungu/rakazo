@@ -20,6 +20,7 @@ import { dispatcherFetch } from "./undici-fetch.js";
 import { isBlockedHostname } from "./web-ssrf.js";
 
 const SERENITY_TIMEOUT_MS = 15_000;
+const SERENITY_TERMINATE_TIMEOUT_MS = 2_000;
 export const MAX_SERENITY_FACT_CHARS = 10_000;
 /** Hosted Serenity rejects larger facts; self-hosted brains share the same bound. */
 export const MAX_SERENITY_FACT_BYTES = 4096;
@@ -201,9 +202,11 @@ function verbErrorMessage(payload: unknown, fallback: string): string {
 function assertNotRateLimited(response: Response): Response {
   if (response.status !== 429) return response;
   const retryAfter = response.headers.get("retry-after")?.trim();
+  // Retry-After is either delta-seconds or an HTTP date.
+  const when = !retryAfter ? null : /^\d+$/.test(retryAfter) ? `${retryAfter}s` : retryAfter;
   throw new Error(
-    retryAfter
-      ? `Serenity rate limit reached; retry after ${retryAfter}s.`
+    when
+      ? `Serenity rate limit reached; retry after ${when}.`
       : "Serenity rate limit reached; retry shortly.",
   );
 }
@@ -328,7 +331,17 @@ async function withSerenityClient<T>(
     return await run(client, requestSignal);
   } finally {
     // Each verb opens its own MCP session; end it server-side instead of leaving it to expire.
-    if (transport.sessionId) await transport.terminateSession().catch(() => undefined);
+    // The SDK's DELETE ignores our request signal, so bound it before closing.
+    if (transport.sessionId) {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      await Promise.race([
+        transport.terminateSession().catch(() => undefined),
+        new Promise<void>((resolve) => {
+          timer = setTimeout(resolve, SERENITY_TERMINATE_TIMEOUT_MS);
+        }),
+      ]);
+      clearTimeout(timer);
+    }
     await client.close().catch(() => undefined);
     await pinnedFetch?.close().catch(() => undefined);
   }
