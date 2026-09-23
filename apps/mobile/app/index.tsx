@@ -827,11 +827,22 @@ function ConversationRow({
 }) {
   const styles = useThemedStyles(createHomeStyles);
   const { t } = useI18n();
+  const toggleLabel = collapsed
+    ? t("Expand {name}", { name: title })
+    : t("Collapse {name}", { name: title });
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
       accessibilityHint={accessibilityHint}
+      // Screen readers treat the row as one element, so the chevron is offered as a row action.
+      accessibilityState={hasChildren ? { expanded: !collapsed } : undefined}
+      accessibilityActions={
+        hasChildren ? [{ name: "toggleChildren", label: toggleLabel }] : undefined
+      }
+      onAccessibilityAction={(event) => {
+        if (event.nativeEvent.actionName === "toggleChildren") onToggleChildren?.();
+      }}
       onPress={onPress}
       onLongPress={onLongPress}
       style={({ pressed }) => [
@@ -842,11 +853,8 @@ function ConversationRow({
     >
       {hasChildren ? (
         <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={
-            collapsed ? t("Expand {name}", { name: title }) : t("Collapse {name}", { name: title })
-          }
-          accessibilityState={{ expanded: !collapsed }}
+          accessible={false}
+          importantForAccessibility="no"
           hitSlop={8}
           onPress={onToggleChildren}
           style={styles.treeToggle}

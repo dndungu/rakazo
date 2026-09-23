@@ -74,12 +74,18 @@ describe("nestRosterByParent", () => {
       ["helper", 2, false],
       ["peer", 0, false],
     ]);
+    expect(rows.map((row) => row.parentId)).toEqual([null, "chief", "lead", null]);
   });
 
   it("keeps orphans as roots when the parent is not in the list", () => {
     const rows = nestRosterByParent([{ id: "helper", parentBotId: "missing" }]);
     expect(rows).toEqual([
-      { item: { id: "helper", parentBotId: "missing" }, depth: 0, hasChildren: false },
+      {
+        item: { id: "helper", parentBotId: "missing" },
+        depth: 0,
+        hasChildren: false,
+        parentId: null,
+      },
     ]);
   });
 

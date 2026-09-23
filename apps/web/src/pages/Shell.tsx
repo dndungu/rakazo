@@ -2822,6 +2822,14 @@ export function ShellPage() {
                 );
                 const nestedRows = nestRosterByParent(group.bots, collapsedRosterParents);
                 const treeActive = nestedRows.some((row) => row.depth > 0 || row.hasChildren);
+                const rosterParent = new Map(
+                  nestedRows.map((row) => [row.item.chat.id, row.parentId] as const),
+                );
+                // Reorder among visible siblings so keyboard and drag moves match the tree.
+                const siblingBotIds = (parentId: string | null) =>
+                  nestedRows.flatMap((row) =>
+                    row.item.kind === "bot" && row.parentId === parentId ? [row.item.chat.id] : [],
+                  );
                 return (
                   <div key={group.key} data-sidebar-group={group.key}>
                     {group.title ? (
@@ -2917,7 +2925,7 @@ export function ShellPage() {
                       </div>
                     ) : null}
                     {!collapsed &&
-                      nestedRows.map(({ item, depth, hasChildren }) => {
+                      nestedRows.map(({ item, depth, hasChildren, parentId }) => {
                         const parentCollapsed =
                           hasChildren && collapsedRosterParents.has(item.chat.id);
                         const selected =
@@ -2926,39 +2934,37 @@ export function ShellPage() {
                         return (
                           <div
                             key={`${item.kind}:${item.chat.id}`}
-                            className={`flex w-full items-stretch rounded-xl ${
-                              selected ? "bg-sidebar-accent" : "hover:bg-sidebar-accent"
-                            }`}
+                            className="group/row relative"
                             style={{
                               opacity:
                                 item.kind === "bot" && draggedBotId === item.chat.id ? 0.55 : 1,
-                              paddingInlineStart: treeActive ? `${10 + depth * 14}px` : undefined,
                             }}
                           >
-                            {treeActive ? (
-                              <span className="flex w-3.5 shrink-0 items-center justify-center">
-                                {hasChildren ? (
-                                  <button
-                                    type="button"
-                                    aria-expanded={!parentCollapsed}
-                                    aria-label={
-                                      parentCollapsed
-                                        ? t`Expand ${item.chat.name}`
-                                        : t`Collapse ${item.chat.name}`
-                                    }
-                                    className="inline-flex size-3.5 items-center justify-center rounded-sm text-muted-foreground hover:text-foreground"
-                                    onClick={() => toggleRosterParent(item.chat.id)}
-                                  >
-                                    <ChevronDown
-                                      size={12}
-                                      strokeWidth={2}
-                                      className={`transition-transform ${
-                                        parentCollapsed ? "-rotate-90" : ""
-                                      }`}
-                                      aria-hidden="true"
-                                    />
-                                  </button>
-                                ) : null}
+                            {hasChildren ? (
+                              <span
+                                className="absolute inset-y-0 z-10 flex w-3.5 items-center justify-center"
+                                style={{ insetInlineStart: `${10 + depth * 14}px` }}
+                              >
+                                <button
+                                  type="button"
+                                  aria-expanded={!parentCollapsed}
+                                  aria-label={
+                                    parentCollapsed
+                                      ? t`Expand ${item.chat.name}`
+                                      : t`Collapse ${item.chat.name}`
+                                  }
+                                  className="inline-flex size-3.5 items-center justify-center rounded-sm text-muted-foreground hover:text-foreground"
+                                  onClick={() => toggleRosterParent(item.chat.id)}
+                                >
+                                  <ChevronDown
+                                    size={12}
+                                    strokeWidth={2}
+                                    className={`transition-transform ${
+                                      parentCollapsed ? "-rotate-90" : ""
+                                    }`}
+                                    aria-hidden="true"
+                                  />
+                                </button>
                               </span>
                             ) : null}
                             <button
@@ -2981,14 +2987,20 @@ export function ShellPage() {
                                 if (
                                   item.kind === "bot" &&
                                   draggedBotId &&
-                                  groupBotIds.includes(draggedBotId)
+                                  groupBotIds.includes(draggedBotId) &&
+                                  rosterParent.get(draggedBotId) === parentId
                                 ) {
                                   event.preventDefault();
                                   event.dataTransfer.dropEffect = "move";
                                 }
                               }}
                               onDrop={(event) => {
-                                if (item.kind !== "bot" || !draggedBotId) return;
+                                if (
+                                  item.kind !== "bot" ||
+                                  !draggedBotId ||
+                                  rosterParent.get(draggedBotId) !== parentId
+                                )
+                                  return;
                                 event.preventDefault();
                                 reorderRosterBot(draggedBotId, item.chat.id, groupBotIds);
                                 setDraggedBotId(null);
@@ -3001,9 +3013,9 @@ export function ShellPage() {
                                   (event.key !== "ArrowUp" && event.key !== "ArrowDown")
                                 )
                                   return;
-                                const index = groupBotIds.indexOf(item.chat.id);
-                                const target =
-                                  groupBotIds[index + (event.key === "ArrowUp" ? -1 : 1)];
+                                const siblings = siblingBotIds(parentId);
+                                const index = siblings.indexOf(item.chat.id);
+                                const target = siblings[index + (event.key === "ArrowUp" ? -1 : 1)];
                                 if (!target) return;
                                 event.preventDefault();
                                 reorderRosterBot(item.chat.id, target, groupBotIds);
@@ -3026,9 +3038,16 @@ export function ShellPage() {
                                   position: { x: event.clientX, y: event.clientY },
                                 });
                               }}
-                              className={`flex min-w-0 flex-1 items-center gap-3 py-[10px] text-start ${
-                                treeActive ? "pe-2.5" : "px-2.5"
-                              } ${item.kind === "bot" ? "cursor-grab active:cursor-grabbing" : ""}`}
+                              className={`flex w-full items-center gap-3 rounded-xl px-2.5 py-[10px] text-start ${
+                                item.kind === "bot" ? "cursor-grab active:cursor-grabbing" : ""
+                              } ${
+                                selected ? "bg-sidebar-accent" : "group-hover/row:bg-sidebar-accent"
+                              }`}
+                              style={
+                                treeActive
+                                  ? { paddingInlineStart: `${24 + depth * 14}px` }
+                                  : undefined
+                              }
                             >
                               {item.kind === "bot" ? (
                                 <BotAvatar

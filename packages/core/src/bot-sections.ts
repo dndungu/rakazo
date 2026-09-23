@@ -73,6 +73,8 @@ export type NestedRosterRow<T> = {
   item: T;
   depth: number;
   hasChildren: boolean;
+  /** Parent this row renders under, or null for a root; siblings share it. */
+  parentId: string | null;
 };
 
 /**
@@ -106,11 +108,16 @@ export function nestRosterByParent<T extends RosterParentable>(
     visited.add(item.id);
     for (const child of children.get(item.id) ?? []) markHidden(child);
   };
-  const visit = (item: T, depth: number, ancestors: ReadonlySet<string>) => {
+  const visit = (
+    item: T,
+    depth: number,
+    parentId: string | null,
+    ancestors: ReadonlySet<string>,
+  ) => {
     if (ancestors.has(item.id) || visited.has(item.id)) return;
     visited.add(item.id);
     const kids = children.get(item.id) ?? [];
-    rows.push({ item, depth, hasChildren: kids.length > 0 });
+    rows.push({ item, depth, hasChildren: kids.length > 0, parentId });
     if (kids.length === 0) return;
     if (collapsedIds.has(item.id)) {
       for (const child of kids) markHidden(child);
@@ -118,13 +125,13 @@ export function nestRosterByParent<T extends RosterParentable>(
     }
     const nextAncestors = new Set(ancestors);
     nextAncestors.add(item.id);
-    for (const child of kids) visit(child, depth + 1, nextAncestors);
+    for (const child of kids) visit(child, depth + 1, item.id, nextAncestors);
   };
 
-  for (const root of roots) visit(root, 0, new Set());
+  for (const root of roots) visit(root, 0, null, new Set());
   // Cycles leave no natural root; surface remaining items in source order.
   for (const item of items) {
-    if (!visited.has(item.id)) visit(item, 0, new Set());
+    if (!visited.has(item.id)) visit(item, 0, null, new Set());
   }
   return rows;
 }

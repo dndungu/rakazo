@@ -40,4 +40,21 @@ test("spawned bots nest under their parent and collapse", async ({ page }, testI
 
   await sidebar.getByRole("button", { name: "Expand Chief" }).click();
   await expect(scout).toBeVisible();
+
+  // Alt+Arrow reorders among visible siblings, so the move shows in the tree.
+  await rosterRow(page, /^Chief/).click();
+  await composer.fill("spawn a bot named Ranger to scout venues");
+  await page.keyboard.press("Enter");
+  const ranger = rosterRow(page, /Ranger/);
+  await expect(ranger).toHaveAttribute("data-roster-depth", "1", { timeout: 30_000 });
+  const childOrder = () =>
+    page
+      .locator('[data-sidebar-group] [data-roster-depth="1"] [data-roster-bot-name]')
+      .allTextContents();
+  const before = await childOrder();
+  expect(before).toHaveLength(2);
+  const last = before[1] === "Ranger" ? ranger : scout;
+  await last.focus();
+  await page.keyboard.press("Alt+ArrowUp");
+  await expect.poll(childOrder).toEqual([before[1], before[0]]);
 });
