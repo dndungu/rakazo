@@ -26,13 +26,13 @@ describe("Serenity memory provider settings", () => {
     expect(form).toContain("placeholder={SERENITY_ENDPOINT_PLACEHOLDER}");
   });
 
-  it("requires an explicit endpoint and accepts the hosted URL only when entered", () => {
+  it("requires an explicit endpoint and leaves URL validity to the backend", () => {
     expect(serenityEndpointError("")).toBe("required");
     expect(serenityEndpointError("   ")).toBe("required");
-    expect(serenityEndpointError("not a url")).toBe("invalid");
-    expect(serenityEndpointError("ftp://serenity.example.test/mcp")).toBe("invalid");
-    expect(serenityEndpointError("https://user:pass@serenity.example.test/mcp")).toBe("invalid");
-    expect(serenityEndpointError("https://serenity.example.test/mcp?x=1")).toBe("invalid");
+    expect(serenityEndpointError("not a url")).toBeNull();
+    expect(serenityEndpointError("ftp://serenity.example.test/mcp")).toBeNull();
+    expect(serenityEndpointError("https://user:pass@serenity.example.test/mcp")).toBeNull();
+    expect(serenityEndpointError("https://serenity.example.test/mcp?x=1")).toBeNull();
     expect(serenityEndpointError(SERENITY_ENDPOINT_PLACEHOLDER)).toBeNull();
 
     expect(
@@ -43,6 +43,21 @@ describe("Serenity memory provider settings", () => {
         allowWrites: false,
       }),
     ).toEqual({ ok: false, error: "required" });
+
+    expect(
+      serenityConnectionDraft({
+        endpoint: "not a url",
+        token: "serenity_token",
+        brainLabel: "",
+        allowWrites: false,
+      }),
+    ).toEqual({
+      ok: true,
+      draft: {
+        settings: { endpoint: "not a url", allowWrites: "false" },
+        credentials: { token: "serenity_token" },
+      },
+    });
 
     expect(
       serenityConnectionDraft({

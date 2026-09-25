@@ -3371,10 +3371,6 @@ msgstr ""
 msgid "Serenity endpoint is required."
 msgstr ""
 
-#: src/pages/memory-providers/SerenitySettingsForm.tsx:57
-msgid "Serenity endpoint must be a valid HTTP(S) URL."
-msgstr ""
-
 #: src/components/integrations/IntegrationSetup.tsx:132
 #: src/pages/AccountSettingsOverlay.tsx:162
 #: src/pages/LocalSettings.tsx:42

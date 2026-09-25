@@ -1,27 +1,15 @@
 /** Example for the empty endpoint field. Not a connection default. */
 export const SERENITY_ENDPOINT_PLACEHOLDER = "https://serenity.sire.run/mcp";
 
-export type SerenityEndpointFieldError = "required" | "invalid";
+export type SerenityEndpointFieldError = "required";
 
-/** The endpoint must be configured. A blank value is not filled with a hosted URL. */
+/**
+ * The endpoint must be configured. A blank value is not filled with a hosted URL.
+ * URL validity stays on the backend (`parseSerenityEndpoint`); the settings overlay
+ * shows that error after connect.
+ */
 export function serenityEndpointError(endpoint: string): SerenityEndpointFieldError | null {
-  const trimmed = endpoint.trim();
-  if (!trimmed) return "required";
-  let url: URL;
-  try {
-    url = new URL(trimmed);
-  } catch {
-    return "invalid";
-  }
-  if (
-    (url.protocol !== "http:" && url.protocol !== "https:") ||
-    url.username ||
-    url.password ||
-    url.href.includes("?") ||
-    url.href.includes("#")
-  ) {
-    return "invalid";
-  }
+  if (!endpoint.trim()) return "required";
   return null;
 }
 

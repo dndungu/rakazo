@@ -52,11 +52,6 @@ export function SerenitySettingsForm({ busy, onConnect }: MemoryProviderSettings
             <Trans>Serenity endpoint is required.</Trans>
           </FieldError>
         ) : null}
-        {endpointError === "invalid" ? (
-          <FieldError id={endpointErrorId}>
-            <Trans>Serenity endpoint must be a valid HTTP(S) URL.</Trans>
-          </FieldError>
-        ) : null}
       </Field>
 
       <Field className="mt-4">
