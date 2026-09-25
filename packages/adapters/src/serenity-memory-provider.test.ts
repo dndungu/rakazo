@@ -108,6 +108,13 @@ describe("SerenityMemoryProvider", () => {
     ).toBe(true);
   });
 
+  it("requires an explicit endpoint and does not assume a hosted URL", async () => {
+    await expect(
+      prepareSerenityConnection({ allowWrites: "false" }, { token: "serenity_test_token" }),
+    ).rejects.toThrow("endpoint is required");
+    expect(probeSerenityMock).not.toHaveBeenCalled();
+  });
+
   it("classifies private LAN DNS without probing", async () => {
     const classified = await classifySerenityConnectionSettings(
       { endpoint: "https://serenity.example.test/mcp", allowWrites: "false" },

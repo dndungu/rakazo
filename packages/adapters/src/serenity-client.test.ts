@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import {
   classifySerenityEndpointTrust,
@@ -13,6 +15,18 @@ import {
 const TOKEN = "serenity_test_token";
 
 describe("serenity endpoint helpers", () => {
+  it("requires an explicit endpoint and does not assume a hosted URL", () => {
+    expect(() => parseSerenityEndpoint("")).toThrow("Serenity endpoint is required.");
+    expect(() => parseSerenityEndpoint("   ")).toThrow("Serenity endpoint is required.");
+    expect(() => normalizeSerenityEndpoint("")).toThrow("Serenity endpoint is required.");
+    const source = readFileSync(
+      fileURLToPath(new URL("./serenity-client.ts", import.meta.url)),
+      "utf8",
+    );
+    expect(source).not.toContain("serenity.sire.run");
+    expect(source).not.toContain("DEFAULT_ENDPOINT");
+  });
+
   it("appends /mcp when missing", () => {
     expect(normalizeSerenityEndpoint("http://127.0.0.1:8787")).toBe("http://127.0.0.1:8787/mcp");
     expect(normalizeSerenityEndpoint("https://serenity.example.test/mcp")).toBe(

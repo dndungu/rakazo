@@ -57,8 +57,9 @@ export interface SerenityForgetResult {
   reason: string | null;
 }
 
-/** Endpoints are route prefixes: no credentials, query, or fragment. */
+/** Endpoints are route prefixes: no credentials, query, or fragment. There is no default URL. */
 export function parseSerenityEndpoint(endpoint: string): URL {
+  if (!endpoint.trim()) throw new Error("Serenity endpoint is required.");
   let url: URL;
   try {
     url = new URL(endpoint);
